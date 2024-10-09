@@ -505,6 +505,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   
   for (auto &F : M){
+
     for (auto &BB : F) {
       
       BasicBlock::iterator IP = BB.getFirstInsertionPt();
@@ -591,7 +592,30 @@ bool AFLCoverage::runOnModule(Module &M) {
           IRB.CreateStore(ConstantInt::get(Int32Ty, cur_loc >> 1), AFLPrevLoc);
       Store->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
     }
+
+    //一些循环分支,由于block的遍历顺序，第一遍遍历的时候不是passSet，所以需要额外处理一遍。
+    if(!passSet.empty()){
+      //最保险的做法，再遍历一次block ，并将passSet清空为止。
+      for (auto &BB : F) {
+
+        BasicBlock::iterator IP = BB.getFirstInsertionPt();
+        IRBuilder<> IRB(&(*IP));
+        unsigned int cur_loc = basicBlockMap[&BB];
+        ConstantInt *CurLoc = ConstantInt::get(Int32Ty, cur_loc);
+
+        LoadInst *PrevLoc = IRB.CreateLoad(AFLPrevLoc);
+        /* If pass, insert the pass string counter */
+        if(passSet.find(cur_loc)!=passSet.end()){
+          IRB.CreateCall(PassFunc,{ConstantInt::get(Int32Ty, cur_loc),PrevLoc,ConstantInt::get(Int32Ty, passSet[cur_loc])});
+          passSet.erase(cur_loc);
+        }
+      }
+    }
   }
+
+ 
+ 
+
   // 关闭文件
   // fclose(file);
   
