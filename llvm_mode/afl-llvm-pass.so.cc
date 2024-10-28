@@ -291,8 +291,10 @@ void AFLCoverage::handleInst(Instruction *inst,  std::unordered_set<Value*> &loc
     Value *basePtr = gepInst->getPointerOperand();
 
     if(isOprendStringRelated(basePtr,localStringValue))
+    {
       localStringValue.insert(inst);
-
+    }
+      
   }else if(isa<SExtInst>(inst)){
 
     SExtInst *sextInst = dyn_cast<SExtInst>(inst);
