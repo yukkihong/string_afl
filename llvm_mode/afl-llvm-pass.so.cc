@@ -40,7 +40,8 @@
 
 #include <unordered_map>
 #include <unordered_set>
-
+#include <iostream>
+#include <fstream>
 
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/IRBuilder.h"
@@ -63,7 +64,7 @@ namespace {
       std::unordered_map<BasicBlock *, u32> basicBlockMap;
       std::unordered_map<u32,u32> passSet;
       std::unordered_set<std::string> handledFunc;
-      std::unordered_set<Value*> stringValue;
+      std::unordered_map<Value*, std::unordered_set<std::string>> stringValue;
       StringRef soureceFileName;
      
       AFLCoverage() : ModulePass(ID) { }
@@ -71,9 +72,11 @@ namespace {
       bool doInitialization(Module &M) override;
       bool runOnModule(Module &M) override;
 
-      void handleInst(Instruction *inst,  std::unordered_set<Value*> &localStringValue);
+      std::string isInterceptedFunction(std::string &calledName); 
+      void saveToXml(const std::string &filename, const std::unordered_map<unsigned int, std::unordered_set<std::string>> &mapping);
+      void handleInst(Instruction *inst,  std::unordered_map<Value*, std::unordered_set<std::string>> &localStringValue);
       void handleFunc(Function *func);
-      bool isOprendStringRelated(Value* value,std::unordered_set<Value*> &localStringValue);
+      std::unordered_set<std::string> isOprendStringRelated(Value* value,std::unordered_map<Value*, std::unordered_set<std::string>> &localStringValue);
       bool isMetadateStringRelated(Value* value);
       bool isTypeStringRelated(DIType* dtype);
       // StringRef getPassName() const override {
@@ -113,7 +116,7 @@ bool AFLCoverage::doInitialization(Module &M) {
         DIGlobalVariable *divGvar = divExpr->getVariable();
       
         if(isTypeStringRelated(divGvar->getType())){
-          stringValue.insert(&gvar);
+          stringValue[&gvar].insert("unknown");        
         }
       }
     }
@@ -122,11 +125,86 @@ bool AFLCoverage::doInitialization(Module &M) {
   return true;
 }
 
-bool AFLCoverage::isOprendStringRelated(Value *value,std::unordered_set<Value*> &localStringValue){
 
-  if(localStringValue.find(value)!=localStringValue.end()||stringValue.find(value)!=stringValue.end()){
-    return true;
+std::string AFLCoverage::isInterceptedFunction(std::string &calledName) {
+  static const std::unordered_set<std::string> kInterceptedFunctions = {
+    "isalnum",  "isalpha",  "islower",  "isupper",  "isdigit",  "isxdigit",
+    "iscntrl",  "isgraph",  "isspace", "isblank", "isprint", "ispunct",
+    "tolower", "toupper", "atof", "atoi", "atol", "atoll",
+    "strfromf", "strfromd", "strfroml", "strtoimax", "strtoumax", "strcpy",
+    "strcpy_s", "stncpy", "strcat", "strcat_s", "strncat", "strxfrm",
+    "strdup", "strndup", "strlen", "strlen_s", "strcmp", "strncmp",
+    "strcoll", "strchr", "strrchr", "strspn", "strcspn", "strpbrk",
+    "strstr", "strtok", "strtok_s", "memchr", "memcmp", "memset",
+    "memset_explicit", "memset_s", "memcpy", "memcpy_s", "memmove", "memmove_s",
+    "memccpy", "strerror", "strerror_s", "strerrorlen_s", "at",
+    "front", "back", "data", "empty", "length", "size",
+    "max_size", "clear", "insert", "insert_range", "erase", "erase_if",
+    "push_back", "pop_back", "append", "append_range", "replace",
+    "replace_with_range", "copy", "resize", "resize_and_overwrite", "swap", "find",
+    "rfind", "find_first_of", "find_first_not_of", "find_last_of", "find_last_not_of", "compare",
+    "starts_with", "ends_with", "contains", "substr", "stoi", "stol",
+    "stoll", "stoul", "stoull", "stof", "stod", "stold",
+  };
+
+  for (const auto& func : kInterceptedFunctions) {
+    if (calledName.find(func) != std::string::npos) {
+      return func; // 返回找到的函数名
+    }
+  }
+  if (calledName.find("basic_string") == std::string::npos) {
+    return ""; // 如果不包含，返回空字符串
+  }
+
+  // 检查是否包含 "char_traits"
+  if (calledName.find("char_traits") == std::string::npos) {
+    return ""; // 如果不包含，返回空字符串
+  }
+
+  // 遍历 kInterceptedFunctions，查找是否存在任何一个函数名
+  for (const auto& func : kInterceptedFunctions) {
+    if (calledName.find(func) != std::string::npos) {
+      return func; // 找到匹配的函数名，返回它
+    }
+  }
+
+  return ""; // 返回空字符串表示未找到
+}
+
+void AFLCoverage::saveToXml(const std::string &filename, 
+  const std::unordered_map<unsigned int, std::unordered_set<std::string>> &mapping) {
+
+  std::ofstream outFile(filename);
+  if (outFile.is_open()) {
+
+    outFile << "<mapping>\n";
+    for (const auto &pair : mapping) {
+      outFile << "  <entry>\n";
+      outFile << "    <Index>" << pair.first << "</Index>\n";
+      for (const auto &value : pair.second) {
+        outFile << "    <Type>" << value << "</Type>\n";
+      }
+      outFile << "  </entry>\n";
+    }
+    outFile << "</mapping>\n";
+    
+    outFile.close();
+    std::cout << "Data saved to XML file." << std::endl;
+  
+  } else {
+    std::cerr << "Unable to open file for writing." << std::endl;
+  }
+}
+
+std::unordered_set<std::string> AFLCoverage::isOprendStringRelated
+  (Value *value,std::unordered_map<Value*, std::unordered_set<std::string>> &localStringValue){
+
+  if(localStringValue.find(value) != localStringValue.end()){
+    return localStringValue[value];
+  }else if(stringValue.find(value) != stringValue.end()){
+    return stringValue[value];
   }else if(isa<ConstantExpr>(value)){
+    
     ConstantExpr* constExpr = dyn_cast<ConstantExpr>(value);
     if(constExpr->getOpcode() == Instruction::GetElementPtr){
       Value *basePtr =constExpr->getOperand(0);
@@ -134,7 +212,7 @@ bool AFLCoverage::isOprendStringRelated(Value *value,std::unordered_set<Value*> 
     }
   }
 
-  return false;
+  return std::unordered_set<std::string>();
 }
 
 bool AFLCoverage::isMetadateStringRelated(Value* value){
@@ -194,7 +272,7 @@ bool AFLCoverage::isTypeStringRelated(DIType* dtype){
   return false;
 }
 
-void AFLCoverage::handleInst(Instruction *inst,  std::unordered_set<Value*> &localStringValue){
+void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::unordered_set<std::string>> &localStringValue){
   /* check the oprends of the Instruction is in the string related table ?
     yes: check which king of the Instruction:
       -Call: handleFunc(calledFunc) while inserting the string related arguments into the table;
@@ -208,10 +286,10 @@ void AFLCoverage::handleInst(Instruction *inst,  std::unordered_set<Value*> &loc
     Function* calledFunc = calle->getCalledFunction();
 
     /* if the function name is dbg.declare 
-        insert the variable into stringValue 
+      insert the variable into stringValue 
     */
     if(calledFunc){
-        /* if function arguments is string related, insert the responsitive 
+      /* if function arguments is string related, insert the responsitive 
       argument into stringValue 
       if function is string api (fucntion name is strcmp ...), then insert
       the the call result value into stringValue.
@@ -225,19 +303,28 @@ void AFLCoverage::handleInst(Instruction *inst,  std::unordered_set<Value*> &loc
 
         Value *actualArg = calle->getArgOperand(argIndex);
       
-        if(isOprendStringRelated(actualArg,localStringValue)){
-          
+        auto res = isOprendStringRelated(actualArg,localStringValue);
+        if(!res.empty()){
           isHandle = true;
-          localStringValue.insert(calle);
+          if(localStringValue.find(calle)==localStringValue.end())
+            localStringValue[calle].insert("unknown");
         }
-
+       
         argIndex++;
       }
 
       if(isHandle&&!calledFunc->getName().empty()){  
       
         std::string funcName = calledFunc->getName().str();
+        
+        //识别对应的str api 然后插入对应类别，删除unknown
+        std::string result = isInterceptedFunction(funcName);
 
+        if (!result.empty()){
+          localStringValue[calle].insert(result);
+          localStringValue[calle].erase("unknown");
+        }
+        
         if(handledFunc.find(funcName)==handledFunc.end()){
           
           handledFunc.insert(funcName);
@@ -253,25 +340,36 @@ void AFLCoverage::handleInst(Instruction *inst,  std::unordered_set<Value*> &loc
     Value* value = storeInst->getValueOperand();
     Value* address = storeInst->getPointerOperand();
 
-    if(isOprendStringRelated(value,localStringValue))
-      localStringValue.insert(address);
-  
+    auto res = isOprendStringRelated(value,localStringValue);
+    if(!res.empty()){
+      localStringValue[address] = res;
+    }
+
   }else if(isa<LoadInst>(inst)){
 
     LoadInst* loadInst = dyn_cast<LoadInst>(inst);
     Value* address = loadInst->getPointerOperand();
 
-    if(isOprendStringRelated(address,localStringValue))
-      localStringValue.insert(loadInst);
+    auto res = isOprendStringRelated(address,localStringValue);
+    if(!res.empty()){
+      localStringValue[loadInst] = res;
+    }
     
   }else if(isa<ICmpInst>(inst)||isa<BinaryOperator>(inst)){   
     
     Value* op1 = inst->getOperand(0);
     Value* op2 = inst->getOperand(1);
 
-    
-    if(isOprendStringRelated(op1,localStringValue)||isOprendStringRelated(op2,localStringValue))
-      localStringValue.insert(inst);
+    auto res1 = isOprendStringRelated(op1,localStringValue);
+    if(!res1.empty()){
+      localStringValue[inst] = res1;
+    }
+
+    auto res2 = isOprendStringRelated(op2, localStringValue);
+    if(!res2.empty()){
+      res1.insert(res2.begin(), res2.end()); 
+      localStringValue[inst] = res1;
+    }
         
   }else if(isa<BranchInst>(inst)){
     
@@ -280,8 +378,10 @@ void AFLCoverage::handleInst(Instruction *inst,  std::unordered_set<Value*> &loc
     if(brInst->isConditional()){
       Value* cond = brInst->getCondition();
 
-      if(isOprendStringRelated(cond,localStringValue))
-        localStringValue.insert(brInst);
+      auto res = isOprendStringRelated(cond,localStringValue);
+      if(!res.empty()){
+        localStringValue[brInst] = res;
+      }
     }
 
   }else if(isa<GetElementPtrInst>(inst)){
@@ -290,31 +390,37 @@ void AFLCoverage::handleInst(Instruction *inst,  std::unordered_set<Value*> &loc
 
     Value *basePtr = gepInst->getPointerOperand();
 
-    if(isOprendStringRelated(basePtr,localStringValue))
-    {
-      localStringValue.insert(inst);
+    auto res = isOprendStringRelated(basePtr,localStringValue);
+    if(!res.empty()){
+      localStringValue[inst] = res;
     }
       
   }else if(isa<SExtInst>(inst)){
 
     SExtInst *sextInst = dyn_cast<SExtInst>(inst);
 
-    if(isOprendStringRelated(sextInst->getOperand(0),localStringValue))
-      localStringValue.insert(inst);
+    auto res = isOprendStringRelated(sextInst->getOperand(0),localStringValue);
+    if(!res.empty()){
+      localStringValue[inst] = res;
+    }
 
   }else if(isa<ZExtInst>(inst)){
     
     ZExtInst *zextInst = dyn_cast<ZExtInst>(inst);
 
-    if(isOprendStringRelated(zextInst->getOperand(0),localStringValue))
-      localStringValue.insert(inst);
+    auto res = isOprendStringRelated(zextInst->getOperand(0),localStringValue);
+    if(!res.empty()){
+      localStringValue[inst] = res;
+    }
 
   }else if(isa<TruncInst>(inst)){
 
     TruncInst *truncInst = dyn_cast<TruncInst>(inst);
 
-    if(isOprendStringRelated(truncInst->getOperand(0),localStringValue))
-      localStringValue.insert(inst);
+    auto res = isOprendStringRelated(truncInst->getOperand(0),localStringValue);
+    if(!res.empty()){
+      localStringValue[inst] = res;
+    }
 
   }else if(isa<InvokeInst>(inst)){
     
@@ -325,19 +431,27 @@ void AFLCoverage::handleInst(Instruction *inst,  std::unordered_set<Value*> &loc
     for (unsigned i = 0; i < invokeInst->getNumArgOperands(); i++) {
       
       Value *arg = invokeInst->getArgOperand(i);
-  
-      if(isOprendStringRelated(arg,localStringValue)){
 
+      auto res = isOprendStringRelated(arg,localStringValue);
+      if(!res.empty()){
         isHandle = true;
-        localStringValue.insert(invokeInst);
+        localStringValue[invokeInst] = res;
       }
     }
 
     if(calledFunc){
 
       if(isHandle&&!calledFunc->getName().empty()){  
-      
+
         std::string funcName = calledFunc->getName().str();
+
+        //识别对应的str api 然后插入对应类别，删除unknown
+        std::string result = isInterceptedFunction(funcName);
+
+        if (!result.empty()){
+          localStringValue[invokeInst].insert(result);
+          localStringValue[invokeInst].erase("unknown");
+        }
 
         if(handledFunc.find(funcName)==handledFunc.end()){
 
@@ -355,10 +469,9 @@ void AFLCoverage::handleInst(Instruction *inst,  std::unordered_set<Value*> &loc
 
       Value *incomingValue = phiNode->getIncomingValue(i);
 
-      if(isOprendStringRelated(incomingValue, localStringValue))
-      {  
-        localStringValue.insert(phiNode);
-        break;
+      auto res = isOprendStringRelated(incomingValue,localStringValue);
+      if(!res.empty()){
+        localStringValue[phiNode] = res;
       }
     }
   }
@@ -366,7 +479,7 @@ void AFLCoverage::handleInst(Instruction *inst,  std::unordered_set<Value*> &loc
 
 void AFLCoverage::handleFunc(Function *func){
 
-  std::unordered_set<Value*> localStringValue;
+  std::unordered_map<Value*, std::unordered_set<std::string>> localStringValue;
 
   for(BasicBlock &blk:*func){
     for(Instruction &inst:blk){
@@ -395,7 +508,7 @@ void AFLCoverage::handleFunc(Function *func){
 
                   Value* val = vam->getValue();
                   
-                  if (val) localStringValue.insert(val); 
+                  if (val) localStringValue[val].insert("unknown");
                 }
               }         
             }
@@ -411,9 +524,11 @@ void AFLCoverage::handleFunc(Function *func){
     }
   }
 
-  for(Value* value:localStringValue){
+  for(auto pair:localStringValue){
+
+    Value *value = pair.first;
     if(isa<BranchInst>(value)){
-      stringValue.insert(dyn_cast<BranchInst>(value));
+      stringValue[dyn_cast<BranchInst>(value)] = pair.second;
     }
   }
 }
@@ -491,12 +606,9 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   }
 
-
   /* handleFunc ：handle BasicBlocks of the Function A Set keep handledFunction avoid repeating
     finish, get a table about the string related values.
-  */
-  
-  
+  */  
   handleFunc(mainFunc);
   
   // FILE* file = freopen("output.log", "w", stderr);
@@ -504,8 +616,18 @@ bool AFLCoverage::runOnModule(Module &M) {
   //   errs() << "Failed to open log file\n";
   //   return 1;
   // }
-
   
+  // for(auto pair:stringValue){
+  //   pair.first->print(errs());
+  //   errs()<<"\n";
+  //   for(auto s:pair.second){
+  //     errs()<<s<<",";
+  //   }
+  //   errs()<<"\n";
+  // }
+
+  std::unordered_map<unsigned int, std::unordered_set<std::string>> mapping;
+
   for (auto &F : M){
 
     for (auto &BB : F) {
@@ -533,6 +655,8 @@ bool AFLCoverage::runOnModule(Module &M) {
             /* If brInst is string related, insert visit couter, insert pass_loc */
             if(stringValue.find(brInst)!=stringValue.end()){
 
+              unsigned int next_loc;
+              
               /* Debug Msg */
               Metadata *md = brInst->getMetadata("dbg");
               if(md){
@@ -546,14 +670,18 @@ bool AFLCoverage::runOnModule(Module &M) {
 
                     /* Visit */
                     BasicBlock *trueBB = brInst->getSuccessor(0);
-                    ConstantInt *Pass_Loc = ConstantInt::get(Int32Ty, basicBlockMap[trueBB]);    
+                    next_loc = basicBlockMap[trueBB];
+                    ConstantInt *Pass_Loc = ConstantInt::get(Int32Ty,next_loc );    
                     IRB.CreateCall(TraceBB,{Pass_Loc,CurLoc});
                   
                     /* Pass */
-                    passSet.insert(std::pair<u32,u32>(basicBlockMap[trueBB],cur_loc));
+                    passSet.insert(std::pair<u32,u32>(next_loc,cur_loc));
                     instBrNum++;
 
                   }
+
+                  // 索引为cur_loc^next_loc>>1,建立对应的插桩string分支索引及其对应的类别
+                  mapping[cur_loc^next_loc]=stringValue[brInst];
                 }
               }
             }
@@ -615,8 +743,7 @@ bool AFLCoverage::runOnModule(Module &M) {
     }
   }
 
- 
- 
+  saveToXml("Index-Type.xml",mapping);
 
   // 关闭文件
   // fclose(file);

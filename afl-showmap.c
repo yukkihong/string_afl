@@ -55,6 +55,23 @@
 #include <sys/resource.h>
 #include <sys/mman.h>
 
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define MAX_ENTRIES 100
+#define MAX_VALUE_LENGTH 100
+
+typedef struct {
+    unsigned int key;
+    char values[MAX_ENTRIES][MAX_VALUE_LENGTH]; // 存储多个值
+    int value_count;
+} MappingEntry;
+
+MappingEntry mapping[MAX_ENTRIES]; // 映射表
+int mapping_size = 0; // 当前映射表的大小
+
 static s32 child_pid;                 /* PID of the tested program         */
 
 static u8* trace_bits;                /* SHM with instrumentation bitmap   */
@@ -771,10 +788,80 @@ static void write_bitmap(void) {
 
 }
 
+// 查找键是否存在，返回其索引或 -1
+int findKeyIndex(unsigned int key) {
+  for (int i = 0; i < mapping_size; i++) {
+    if (mapping[i].key == key) {
+      return i;
+    }
+  }
+  return -1; // 未找到
+}
+
+// 加入新的键值对
+void addMapping(unsigned int key, const char *value) {
+  int index = findKeyIndex(key);
+  if (index != -1) {
+      // 键已存在，添加值
+    strcpy(mapping[index].values[mapping[index].value_count++], value);
+  } else if (mapping_size < MAX_ENTRIES) {
+      // 键不存在，创建新的映射条目
+    mapping[mapping_size].key = key;
+    strcpy(mapping[mapping_size].values[0], value);
+    mapping[mapping_size].value_count = 1;
+    mapping_size++;
+  }
+}
+
+// 从 XML 文件加载数据
+void loadFromXml(const char *filename) {
+  FILE *inFile = fopen(filename, "r");
+  char line[256];
+
+  if (inFile == NULL) {
+    perror("Unable to open file for reading");
+    return;
+  }
+
+  unsigned int key = 0;
+  char value[MAX_VALUE_LENGTH];
+
+  while (fgets(line, sizeof(line), inFile)) {
+    
+    if (strstr(line, "<Index>") != NULL) {
+      // 去掉换行符, 去掉行首空格
+      line[strcspn(line, "\n")] = 0;
+      char *trimmedLine = line + strspn(line, " ");
+      sscanf(trimmedLine, "<Index>%u</Index>", &key);
+    }
+    if (strstr(line, "<Type>") != NULL) {
+      line[strcspn(line, "\n")] = 0;
+      char *trimmedLine = line + strspn(line, " ");
+      sscanf(trimmedLine, "<Type>%s</Type>", value);
+      addMapping(key, value);
+    }
+  }
+
+  fclose(inFile);
+  printf("Data loaded from XML file.\n");
+}
+
+// 打印映射表
+void printMapping() {
+  for (int i = 0; i < mapping_size; i++) {
+    printf("Index: %u\n", mapping[i].key);
+    for (int j = 0; j < mapping[i].value_count; j++) {
+      printf("  Type: %s\n", mapping[i].values[j]);
+    }
+  }
+}
 
 /* Main entry point */
 
 int main(int argc, char** argv) {
+
+  loadFromXml("Index-Type.xml");
+  printMapping();
 
   s32 opt;
   u8  mem_limit_given = 0, timeout_given = 0, qemu_mode = 0;
