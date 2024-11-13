@@ -675,7 +675,6 @@ void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::
 
 void AFLCoverage::handleFunc(Function *func){
 
-  errs()<<"FuncName:"<<func->getName()<<"\n";
 
   std::unordered_map<Value*, std::unordered_set<std::string>> localStringValue;
 
@@ -696,7 +695,9 @@ void AFLCoverage::handleFunc(Function *func){
 
             MetadataAsValue *mav = dyn_cast<MetadataAsValue>(value);
             ValueAsMetadata* vam = dyn_cast<ValueAsMetadata>(mav->getMetadata());
-            Value* val = vam->getValue();
+            Value* val = nullptr;
+            if(vam != nullptr)
+              val = vam->getValue();
 
             if(val!=nullptr && isMetadateStringRelated(scope,val))
               localStringValue[val].insert("unknown");
@@ -850,7 +851,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
                   if(soureceFileName == loc->getFilename()){
 
-                    errs() << soureceFileName << "    Line: " << loc->getLine() <<"\n";
+                    errs() << loc->getFilename() << "    Line: " << loc->getLine() <<"\n";
 
                     /* Visit */
                     BasicBlock *trueBB = brInst->getSuccessor(0);
