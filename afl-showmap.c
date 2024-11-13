@@ -60,17 +60,28 @@
 #include <stdlib.h>
 #include <string.h>
 
+
+#define MAP_SIZE_POW2       16
+#define MAP_SIZE            (1 << MAP_SIZE_POW2)
 #define MAX_ENTRIES 100
 #define MAX_VALUE_LENGTH 100
+#define TYPE_SIZE 100
 
 typedef struct {
-    unsigned int key;
-    char values[MAX_ENTRIES][MAX_VALUE_LENGTH]; // 存储多个值
-    int value_count;
+  unsigned int key;
+  char values[MAX_ENTRIES][MAX_VALUE_LENGTH]; // 存储多个值
+  int value_count;
 } MappingEntry;
 
-MappingEntry mapping[MAX_ENTRIES]; // 映射表
+typedef struct{
+  char* type;
+  unsigned int count;
+}TypeCount;
+
+TypeCount typeCountResult[TYPE_SIZE];
+MappingEntry mapping[MAP_SIZE]; // 映射表
 int mapping_size = 0; // 当前映射表的大小
+int typemapping_size = 0;
 
 static s32 child_pid;                 /* PID of the tested program         */
 
@@ -855,13 +866,38 @@ void printMapping() {
     }
   }
 }
+// 查找键是否存在，返回其索引或 -1
+int findTypeIndex(char* key) {
+  for (int i = 0; i < typemapping_size; i++) {
+    if (typeCountResult[i].type == key) {
+      return i;
+    }
+  }
+  return -1; // 未找到
+}
+
+// 加入新的键值对
+void addTypeCount(char* key, unsigned int  value) {
+  int index = findKeyIndex(key);
+  if (index != -1) {
+    // 键已存在，添加值
+    typeCountResult[index].count += value;
+  } else if (typemapping_size < MAX_ENTRIES) {
+    // 键不存在，创建新的映射条目
+    typeCountResult[typemapping_size].type = key;
+    typeCountResult[typemapping_size].count = 0;
+    typeCountResult[typemapping_size].count += value;
+    typemapping_size++;
+  }
+}
+
+void CountType(int index){
+  
+}
 
 /* Main entry point */
 
 int main(int argc, char** argv) {
-
-  loadFromXml("Index-Type.xml");
-  printMapping();
 
   s32 opt;
   u8  mem_limit_given = 0, timeout_given = 0, qemu_mode = 0;
@@ -1082,7 +1118,12 @@ int main(int argc, char** argv) {
     
     total_execs++;
     
+    loadFromXml("Index-Type.xml");//获取Index-Type信息
+    
     for(int i=0;i<MAP_SIZE;i++){
+      
+      CountType(i);//利用 xml得到的mapping来count
+
       if(pass_string_cov[i]!=0){
 
         br_string_pass[i]+=pass_string_cov[i];
@@ -1116,6 +1157,9 @@ int main(int argc, char** argv) {
     }
   
     write_bitmap();
+
+    
+    printMapping();
 
     munmap(in_buf, st.st_size);
     close(fd);

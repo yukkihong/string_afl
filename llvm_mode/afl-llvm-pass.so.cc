@@ -54,6 +54,42 @@
 
 using namespace llvm;
 
+
+namespace {
+  class stringStruct {
+    public:
+      std::vector<int> idx;
+      int structCount;
+      std::vector<int> structIdx;
+      std::vector<stringStruct*> structs;
+      bool isStringRelated;
+      
+      stringStruct(bool isString,int count=0): isStringRelated(isString),structCount(count) {}
+
+      bool isStruct();
+      void print();
+  };
+}
+
+bool stringStruct::isStruct(){//检查vector是否都为空,都为空不是为struct。
+  if(!idx.empty()) return true;
+  if(structCount != 0) return true;
+  if(!structIdx.empty()) return true;
+  if(!structs.empty()) return true;
+
+  return false;
+}
+
+void stringStruct::print(){
+  for(auto i: idx){
+    errs()<<i<<"/";
+  }errs()<<"\n";
+  errs()<<"structCount:"<<structCount<<"\n";
+  for(auto i:structIdx){
+    errs()<<i<<"/";
+  }errs()<<"\n";
+}
+
 namespace {
 
   class AFLCoverage : public ModulePass {
@@ -65,6 +101,8 @@ namespace {
       std::unordered_map<u32,u32> passSet;
       std::unordered_set<std::string> handledFunc;
       std::unordered_map<Value*, std::unordered_set<std::string>> stringValue;
+      std::unordered_map<Value*, stringStruct*> valueStringStruct;
+      std::unordered_map<DIType*,stringStruct*> processedTypes;
       StringRef soureceFileName;
      
       AFLCoverage() : ModulePass(ID) { }
@@ -77,8 +115,8 @@ namespace {
       void handleInst(Instruction *inst,  std::unordered_map<Value*, std::unordered_set<std::string>> &localStringValue);
       void handleFunc(Function *func);
       std::unordered_set<std::string> isOprendStringRelated(Value* value,std::unordered_map<Value*, std::unordered_set<std::string>> &localStringValue);
-      bool isMetadateStringRelated(Value* value);
-      bool isTypeStringRelated(DIType* dtype);
+      bool isMetadateStringRelated(Value* scope,Value* value);
+      stringStruct* isTypeStringRelated(DIType* dtype);
       // StringRef getPassName() const override {
       //  return "American Fuzzy Lop Instrumentation";
       // }
@@ -87,9 +125,7 @@ namespace {
 
 }
 
-
 char AFLCoverage::ID = 0;
-
 
 bool AFLCoverage::doInitialization(Module &M) {
   /* Initialize id for each basic block */
@@ -115,9 +151,17 @@ bool AFLCoverage::doInitialization(Module &M) {
         DIGlobalVariableExpression *divExpr = dyn_cast<DIGlobalVariableExpression>(md);
         DIGlobalVariable *divGvar = divExpr->getVariable();
       
-        if(isTypeStringRelated(divGvar->getType())){
-          stringValue[&gvar].insert("unknown");        
+        stringStruct *res = isTypeStringRelated(divGvar->getType());
+
+        if(res->isStringRelated){
+          // 是结构体就认为和string无关，同时保留了结构体内和string相关的成员记录。
+          if(res->isStruct()) valueStringStruct[&gvar] = res;
+          else stringValue[&gvar].insert("unknown");
         }
+
+        // if(isTypeStringRelated(divGvar->getType(),&gvar)){
+        //   stringValue[&gvar].insert("unknown");        
+        // }
       }
     }
   }
@@ -215,62 +259,179 @@ std::unordered_set<std::string> AFLCoverage::isOprendStringRelated
   return std::unordered_set<std::string>();
 }
 
-bool AFLCoverage::isMetadateStringRelated(Value* value){
+bool AFLCoverage::isMetadateStringRelated(Value* scope,Value *value){
 
-  if(isa<MetadataAsValue>(value)){
+  if(isa<MetadataAsValue>(scope)){
 
-    Metadata* md = cast<MetadataAsValue>(*value).getMetadata();
+    Metadata* md = cast<MetadataAsValue>(*scope).getMetadata();
     
     if (isa<DILocalVariable>(*md)) {
       
       DIType* dtype = cast<DILocalVariable>(*md).getType();
+      if(dtype==nullptr) return false;
+      stringStruct *res = isTypeStringRelated(dtype);
 
-      if(nullptr == dtype){
-        md->print(errs());
-        errs()<<"\n";
+      if(res->isStringRelated){
+        if(res->isStruct()){ // 认为是和结构体字符串无关，但是有valueStringStruct进行记录：结构体属性可能和string有关。
+          valueStringStruct[value] = res;
+          return false;
+        }
+        return true;
       }
-
-      if(nullptr!=dtype && (dtype)) return true;
     }
   }
   return false;
 }
 
-bool AFLCoverage::isTypeStringRelated(DIType* dtype){
+stringStruct* AFLCoverage::isTypeStringRelated(DIType* dtype){
 
+  if(processedTypes.find(dtype) != processedTypes.end()){
+    
+    return processedTypes[dtype];
+  }
+
+  processedTypes[dtype] = new stringStruct(false);
+  
   /* handle dtype because compositeType */
   if(isa<DICompositeType>(dtype)){
     
     DICompositeType* dctype = dyn_cast<DICompositeType>(dtype);
-    
-    //没有baseType，查看name
-    if(!dctype->getBaseType()){
-      if(0==dctype->getName().str().compare("basic_string<char, std::char_traits<char>, std::allocator<char> >")){
-        return true;
-      }else return false;
+
+    if(!dctype->getName().empty() && (0==dctype->getName().str().compare("basic_string<char, std::char_traits<char>, std::allocator<char> >"))){
+      processedTypes[dctype] = new stringStruct(true);
+      return processedTypes[dctype];
     }
-    
-    if(!dctype->getBaseType()->getName().str().compare("char")) return true;
+
+    if(dctype->getBaseType()!= nullptr){
+      processedTypes[dctype] = isTypeStringRelated(dctype->getBaseType());
+      return processedTypes[dctype];  
+    }
+       
+    DINodeArray es = dctype->getElements();
+    int idx = 0;
+    stringStruct* res = new stringStruct(false);
+
+    for (auto *element : es) {
+      
+      if(isa<DIType>(element)){  
+        DIType *e = dyn_cast<DIType>(element);
+        
+        stringStruct* eStruct = isTypeStringRelated(e);
+        if(eStruct->isStringRelated){
+
+          if(!res->isStringRelated) res->isStringRelated = true;
+          if(eStruct->isStruct()){
+            res->structCount++;
+            res->structIdx.push_back(idx);
+            res->structs.push_back(eStruct);
+          }else{
+            res->idx.push_back(idx);
+          }
+        }    
+      }
+      idx++;
+    }   
+    processedTypes[dtype] = res;
+    return res;
 
   }else if(isa<DIDerivedType>(dtype)){
 
     DIDerivedType * ddtype = dyn_cast<DIDerivedType>(dtype);
     DIType *baseType = ddtype->getBaseType();
 
-    while(isa<DIDerivedType>(baseType)){
-      ddtype = dyn_cast<DIDerivedType>(baseType);
-      baseType = ddtype->getBaseType();
-    }
-    if(ddtype->getName().str().compare("string")) return true;
-    //得到的baseType可能是DICompositeType
-    return isTypeStringRelated(baseType);
-    // if(!baseType->getName().str().compare("char")) return true;
-  }else if(isa<DIBasicType>(dtype)){
+    if(baseType != nullptr){
+      stringStruct* res = isTypeStringRelated(baseType);
+      
+      if(res->isStringRelated){
+        processedTypes[dtype] = res;
+      }
 
-    if(!dyn_cast<DIBasicType>(dtype)->getName().str().compare("char")) return true;
+      return res;
+    } 
+
+  }else if(isa<DIBasicType>(dtype)){
+    DIBasicType *btype = dyn_cast<DIBasicType>(dtype);
+    
+    if(!dtype->getName().empty()){
+      if(!dtype->getName().str().compare("char")) {
+        stringStruct* res = new stringStruct(true);
+        processedTypes[dtype] = res;
+        return res;
+      }
+    }
   }
-  return false;
+
+  return new stringStruct(false);
 }
+
+// bool AFLCoverage::isTypeStringRelated(DIType* dtype,Value* value){
+
+//   if(processedTypes.find(dtype) != processedTypes.end()){
+//     return processedTypes[dtype];
+//   }
+
+//   processedTypes[dtype] = false;
+  
+//   /* handle dtype because compositeType */
+//   if(isa<DICompositeType>(dtype)){
+    
+//     DICompositeType* dctype = dyn_cast<DICompositeType>(dtype);
+
+//     if(!dctype->getName().empty() && (0==dctype->getName().str().compare("basic_string<char, std::char_traits<char>, std::allocator<char> >"))){
+//       processedTypes[dctype] = true;
+//       return true;
+//     }
+
+//     if(dctype->getBaseType()!= nullptr){
+//       processedTypes[dctype] = isTypeStringRelated(dctype->getBaseType(),value);
+//       return processedTypes[dctype];  
+//     }
+       
+    
+//     DINodeArray es = dctype->getElements();
+//     int idx = 1;
+//     bool res = false;
+//     for (auto *element : es) {
+      
+//       if(isa<DIType>(element)){  
+//         DIType *e = dyn_cast<DIType>(element);
+        
+//         if(isTypeStringRelated(e,value)) {
+//           structStringValueIndex[value] = idx;//记录结构体中的那个是string相关 , 不能只是单独一个int 索引 ，嵌套的struct。
+          
+//           if(!res){
+//             res = true;
+//             processedTypes[dtype] = true;
+//           } 
+//         }
+//       }
+//       idx++;
+//     }   
+//     return res;
+
+//   }else if(isa<DIDerivedType>(dtype)){
+
+//     DIDerivedType * ddtype = dyn_cast<DIDerivedType>(dtype);
+//     DIType *baseType = ddtype->getBaseType();
+
+//     if(baseType != nullptr){
+//       processedTypes[dtype] = isTypeStringRelated(baseType,value);
+//       return processedTypes[dtype];
+//     } 
+
+//   }else if(isa<DIBasicType>(dtype)){
+//     DIBasicType *btype = dyn_cast<DIBasicType>(dtype);
+    
+//     if(!dtype->getName().empty()){
+//       if(!dtype->getName().str().compare("char")) {
+//         processedTypes[dtype] = dtype;
+//         return true;
+//       }
+//     }
+//   }
+
+//   return false;
+// }
 
 void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::unordered_set<std::string>> &localStringValue){
   /* check the oprends of the Instruction is in the string related table ?
@@ -284,11 +445,11 @@ void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::
 
     CallInst* calle = dyn_cast<CallInst>(inst);
     Function* calledFunc = calle->getCalledFunction();
-
+    
     /* if the function name is dbg.declare 
       insert the variable into stringValue 
     */
-    if(calledFunc){
+    if(calledFunc && !calledFunc->getName().empty()){
       /* if function arguments is string related, insert the responsitive 
       argument into stringValue 
       if function is string api (fucntion name is strcmp ...), then insert
@@ -297,14 +458,15 @@ void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::
       /* Avoid repeating, insert the handled function into handledFunc */
       int argIndex = 0;
       bool isHandle = false;
-
+      std::string funcName = calledFunc->getName().str();
+      
       // default str api not need to trace function args
       for (Argument &arg : calledFunc->args()) {
 
         Value *actualArg = calle->getArgOperand(argIndex);
       
         auto res = isOprendStringRelated(actualArg,localStringValue);
-        if(!res.empty()){
+        if(!res.empty()){//应该是这里出了问题
           isHandle = true;
           if(localStringValue.find(calle)==localStringValue.end())
             localStringValue[calle].insert("unknown");
@@ -312,11 +474,8 @@ void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::
        
         argIndex++;
       }
-
-      if(isHandle&&!calledFunc->getName().empty()){  
-      
-        std::string funcName = calledFunc->getName().str();
-        
+   
+      if(isHandle){  
         //识别对应的str api 然后插入对应类别，删除unknown
         std::string result = isInterceptedFunction(funcName);
 
@@ -324,12 +483,11 @@ void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::
           localStringValue[calle].insert(result);
           localStringValue[calle].erase("unknown");
         }
-        
-        if(handledFunc.find(funcName)==handledFunc.end()){
-          
-          handledFunc.insert(funcName);
-          handleFunc(calledFunc);
-        }
+      }
+
+      if(handledFunc.find(funcName)==handledFunc.end()){   
+        handledFunc.insert(funcName);
+        handleFunc(calledFunc);
       }
    }
   }
@@ -389,11 +547,41 @@ void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::
     GetElementPtrInst *gepInst = dyn_cast<GetElementPtrInst>(inst);
 
     Value *basePtr = gepInst->getPointerOperand();
+    
+    if(valueStringStruct.find(basePtr)!=valueStringStruct.end()){//结构体,嵌套结构体,，但是结构体需要看是哪个索引     
+      //查看对应索引位置是否为 string idx 或是 string struct idx
+      unsigned operandCount = gepInst->getNumIndices();
+      stringStruct* vss = valueStringStruct[basePtr];
+      
+      if(operandCount>=2) {
+        Value *idx = gepInst->getOperand(2);
 
-    auto res = isOprendStringRelated(basePtr,localStringValue);
-    if(!res.empty()){
-      localStringValue[inst] = res;
+        if(auto *CI = dyn_cast<ConstantInt>(idx)){
+          int selectIdx = CI->getSExtValue();
+          //selectIdx == 结构体中，string相关的非结构体成员idx,记录
+      
+          for(auto index: vss->idx){      
+            if(selectIdx == index){
+              localStringValue[inst].insert("unknown");// 因为刚开始跟踪，所以unknown
+            }
+          }
+          //selectIdx == 结构体中，string相关的结构体成员structIdx如下处理
+          for(int index = 0;index < vss->structCount;index++){
+            if(selectIdx == vss->structIdx[index]){
+              valueStringStruct[inst] = vss->structs[index]; // 记录对应的[value*, stringStruct*]映射关系
+              break;
+            }
+          }
+        }
+      }
+    }else{
+      //非结构体，正常操作
+      auto res = isOprendStringRelated(basePtr,localStringValue); // char数组 getelement直接ok
+      if(!res.empty()){
+        localStringValue[inst] = res;
+      }
     }
+
       
   }else if(isa<SExtInst>(inst)){
 
@@ -474,10 +662,20 @@ void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::
         localStringValue[phiNode] = res;
       }
     }
+  }else if(isa<IntToPtrInst>(inst)){
+    IntToPtrInst *iToPtr = dyn_cast<IntToPtrInst>(inst);
+    Value *srcValue = iToPtr->getOperand(0);
+
+    auto res = isOprendStringRelated(srcValue,localStringValue);
+    if(!res.empty()){
+      localStringValue[inst] = res;
+    }
   }
 }
 
 void AFLCoverage::handleFunc(Function *func){
+
+  errs()<<"FuncName:"<<func->getName()<<"\n";
 
   std::unordered_map<Value*, std::unordered_set<std::string>> localStringValue;
 
@@ -496,22 +694,12 @@ void AFLCoverage::handleFunc(Function *func){
             Value* value = calle->getArgOperand(0);
             Value *scope = calle->getArgOperand(1);
 
-            if(isMetadateStringRelated(scope)){
+            MetadataAsValue *mav = dyn_cast<MetadataAsValue>(value);
+            ValueAsMetadata* vam = dyn_cast<ValueAsMetadata>(mav->getMetadata());
+            Value* val = vam->getValue();
 
-              MetadataAsValue *mav = dyn_cast<MetadataAsValue>(value);
-
-              if (mav) {
-
-                ValueAsMetadata* vam = dyn_cast<ValueAsMetadata>(mav->getMetadata());
-                
-                if (vam) {
-
-                  Value* val = vam->getValue();
-                  
-                  if (val) localStringValue[val].insert("unknown");
-                }
-              }         
-            }
+            if(val!=nullptr && isMetadateStringRelated(scope,val))
+              localStringValue[val].insert("unknown");
           }
         } 
       }
@@ -519,7 +707,10 @@ void AFLCoverage::handleFunc(Function *func){
   }
 
   for(BasicBlock &blk: *func){
-    for(Instruction &inst: blk){   
+    for(Instruction &inst: blk){
+      if(func->getName()=="process_file"){
+        inst.print(errs());errs()<<"\n";
+      }   
       handleInst(&inst,localStringValue);
     }
   }
@@ -606,10 +797,12 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   }
 
+ 
   /* handleFunc ：handle BasicBlocks of the Function A Set keep handledFunction avoid repeating
     finish, get a table about the string related values.
   */  
   handleFunc(mainFunc);
+
   
   // FILE* file = freopen("output.log", "w", stderr);
   // if (!file) {
@@ -617,15 +810,6 @@ bool AFLCoverage::runOnModule(Module &M) {
   //   return 1;
   // }
   
-  // for(auto pair:stringValue){
-  //   pair.first->print(errs());
-  //   errs()<<"\n";
-  //   for(auto s:pair.second){
-  //     errs()<<s<<",";
-  //   }
-  //   errs()<<"\n";
-  // }
-
   std::unordered_map<unsigned int, std::unordered_set<std::string>> mapping;
 
   for (auto &F : M){
@@ -666,7 +850,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
                   if(soureceFileName == loc->getFilename()){
 
-                    errs() << soureceFileName << "    Line: " << loc->getLine() << "\n";
+                    errs() << soureceFileName << "    Line: " << loc->getLine() <<"\n";
 
                     /* Visit */
                     BasicBlock *trueBB = brInst->getSuccessor(0);
