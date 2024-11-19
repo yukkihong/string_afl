@@ -419,9 +419,9 @@ void AFLCoverage::isHandleTargetFunc(std::string &funcName,Instruction *inst,  s
     
     Value *target = callBase->getArgOperand(0);
     Value *src = callBase->getArgOperand(1);
-    std::unordered_set<std::string> typeSet = localStringValue[src];
-    
-    if(target != nullptr){
+
+    if(target != nullptr && src != nullptr){
+      std::unordered_set<std::string> typeSet = localStringValue[src];
       localStringValue[target].insert(typeSet.begin(),typeSet.end());
       localStringValue[target].insert(funcName);
     }
@@ -430,10 +430,10 @@ void AFLCoverage::isHandleTargetFunc(std::string &funcName,Instruction *inst,  s
     
     Value *arg1 = callBase->getArgOperand(0);
     Value *arg2 = callBase->getArgOperand(1);
-    std::unordered_set<std::string> typeSet1 = localStringValue[arg1];
-    std::unordered_set<std::string> typeSet2 = localStringValue[arg2];
-    
+
     if(arg1 != nullptr && arg2 !=nullptr){
+      std::unordered_set<std::string> typeSet1 = localStringValue[arg1];
+      std::unordered_set<std::string> typeSet2 = localStringValue[arg2];
       localStringValue[arg1] = typeSet2;
       localStringValue[arg2] = typeSet1;
       localStringValue[arg1].insert(funcName);
@@ -453,9 +453,9 @@ void AFLCoverage::isHandleTargetFunc(std::string &funcName,Instruction *inst,  s
     Value *dest = callBase->getArgOperand(0);
     Value *src = callBase->getArgOperand(2);
     dest = getValue(dest);src = getValue(src);
-    std::unordered_set<std::string> typeSet = localStringValue[src];
     
-    if( dest != nullptr){
+    if( dest != nullptr && src != nullptr){
+      std::unordered_set<std::string> typeSet = localStringValue[src];
       localStringValue[dest].insert(typeSet.begin(),typeSet.end());
       localStringValue[dest].insert(funcName);
     }
@@ -468,10 +468,10 @@ void AFLCoverage::isHandleTargetFunc(std::string &funcName,Instruction *inst,  s
     Value *arg1 = callBase->getArgOperand(0);
     Value *arg2 = callBase->getArgOperand(1);
     arg1 = getValue(arg1); arg2 = getValue(arg2);
-    std::unordered_set<std::string> typeSet1 = localStringValue[arg1];
-    std::unordered_set<std::string> typeSet2 = localStringValue[arg2];
     
     if(arg1 != nullptr && arg2 != nullptr){
+      std::unordered_set<std::string> typeSet1 = localStringValue[arg1];
+      std::unordered_set<std::string> typeSet2 = localStringValue[arg2];
       localStringValue[arg1] = typeSet2;
       localStringValue[arg2] = typeSet1;
       localStringValue[arg1].insert(funcName);
@@ -509,6 +509,8 @@ void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::
       -Load: insert ...   return true;
     no: return false;
   */
+  if(inst == nullptr) return ;
+
   if(isa<CallInst>(inst)){
 
     CallInst* calle = dyn_cast<CallInst>(inst);
@@ -762,7 +764,6 @@ void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::
 
 void AFLCoverage::handleFunc(Function *func){
 
-
   std::unordered_map<Value*, std::unordered_set<std::string>> localStringValue;
 
   for(BasicBlock &blk:*func){
@@ -801,9 +802,8 @@ void AFLCoverage::handleFunc(Function *func){
   }
 
   for(auto pair:localStringValue){
-
     Value *value = pair.first;
-    if(isa<BranchInst>(value)){
+    if(nullptr != value && isa<BranchInst>(value)){
       stringValue[dyn_cast<BranchInst>(value)] = pair.second;
     }
   }
