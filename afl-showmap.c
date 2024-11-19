@@ -71,17 +71,19 @@ typedef struct {
   unsigned int key;
   char values[MAX_ENTRIES][MAX_VALUE_LENGTH]; // 存储多个值
   int value_count;
-} MappingEntry;
+} IndexType;
 
 typedef struct{
   char* type;
-  unsigned int count;
+  int count;
 }TypeCount;
 
-TypeCount typeCountResult[TYPE_SIZE];
-MappingEntry mapping[MAP_SIZE]; // 映射表
+TypeCount typeCountVisit[TYPE_SIZE];
+TypeCount typeCountPass[TYPE_SIZE];
+IndexType indexType[MAP_SIZE]; // 映射表
 int mapping_size = 0; // 当前映射表的大小
-int typemapping_size = 0;
+int visit_size = 0;
+int pass_size = 0;
 
 static s32 child_pid;                 /* PID of the tested program         */
 
@@ -802,7 +804,7 @@ static void write_bitmap(void) {
 // 查找键是否存在，返回其索引或 -1
 int findKeyIndex(unsigned int key) {
   for (int i = 0; i < mapping_size; i++) {
-    if (mapping[i].key == key) {
+    if (indexType[i].key == key) {
       return i;
     }
   }
@@ -812,14 +814,15 @@ int findKeyIndex(unsigned int key) {
 // 加入新的键值对
 void addMapping(unsigned int key, const char *value) {
   int index = findKeyIndex(key);
+  
   if (index != -1) {
-      // 键已存在，添加值
-    strcpy(mapping[index].values[mapping[index].value_count++], value);
-  } else if (mapping_size < MAX_ENTRIES) {
-      // 键不存在，创建新的映射条目
-    mapping[mapping_size].key = key;
-    strcpy(mapping[mapping_size].values[0], value);
-    mapping[mapping_size].value_count = 1;
+    // 键已存在，添加值
+    strcpy(indexType[index].values[indexType[index].value_count++], value);
+  } else if (mapping_size < MAP_SIZE) {
+    // 键不存在，创建新的映射条目
+    indexType[mapping_size].key = key;
+    strcpy(indexType[mapping_size].values[0], value);
+    indexType[mapping_size].value_count = 1;
     mapping_size++;
   }
 }
@@ -838,7 +841,6 @@ void loadFromXml(const char *filename) {
   char value[MAX_VALUE_LENGTH];
 
   while (fgets(line, sizeof(line), inFile)) {
-    
     if (strstr(line, "<Index>") != NULL) {
       // 去掉换行符, 去掉行首空格
       line[strcspn(line, "\n")] = 0;
@@ -848,7 +850,8 @@ void loadFromXml(const char *filename) {
     if (strstr(line, "<Type>") != NULL) {
       line[strcspn(line, "\n")] = 0;
       char *trimmedLine = line + strspn(line, " ");
-      sscanf(trimmedLine, "<Type>%s</Type>", value);
+      // sscanf(trimmedLine, "<Type>%s</Type>", value);
+      sscanf(trimmedLine, "<Type>%[^<]</Type>", value);
       addMapping(key, value);
     }
   }
@@ -857,19 +860,10 @@ void loadFromXml(const char *filename) {
   printf("Data loaded from XML file.\n");
 }
 
-// 打印映射表
-void printMapping() {
-  for (int i = 0; i < mapping_size; i++) {
-    printf("Index: %u\n", mapping[i].key);
-    for (int j = 0; j < mapping[i].value_count; j++) {
-      printf("  Type: %s\n", mapping[i].values[j]);
-    }
-  }
-}
 // 查找键是否存在，返回其索引或 -1
-int findTypeIndex(char* key) {
-  for (int i = 0; i < typemapping_size; i++) {
-    if (typeCountResult[i].type == key) {
+int findTypeIndex(char* key,TypeCount* typeCount,int *size) {
+  for (int i = 0; i < (*size); i++) {
+    if (strcmp(typeCount[i].type, key) == 0 ) {
       return i;
     }
   }
@@ -877,22 +871,80 @@ int findTypeIndex(char* key) {
 }
 
 // 加入新的键值对
-void addTypeCount(char* key, unsigned int  value) {
-  int index = findKeyIndex(key);
+void addTypeCount(char* key, unsigned int  value,TypeCount* typeCount,int *size) {
+  
+  int index = findTypeIndex(key,typeCount,size);
   if (index != -1) {
     // 键已存在，添加值
-    typeCountResult[index].count += value;
-  } else if (typemapping_size < MAX_ENTRIES) {
+    typeCount[index].count += value;
+
+  } else if ((*size) < MAX_ENTRIES) {
     // 键不存在，创建新的映射条目
-    typeCountResult[typemapping_size].type = key;
-    typeCountResult[typemapping_size].count = 0;
-    typeCountResult[typemapping_size].count += value;
-    typemapping_size++;
+    typeCount[*size].type = malloc(strlen(key) + 1);
+    strcpy(typeCount[*size].type , key);
+    typeCount[*size].count = 0;
+    typeCount[*size].count += value;
+    (*size)++;
   }
 }
 
-void CountType(int index){
+
+void CountType(int index,char *opt){
+  TypeCount *typeCount;
+  int *size;
   
+  if(0 == strcmp(opt,"pass")){
+    typeCount = typeCountPass;
+    size = &pass_size;
+  }else if(0 == strcmp(opt,"visit")){
+    typeCount = typeCountVisit;
+    size = &visit_size;
+  }
+
+  int findIdx =  findKeyIndex(index);
+  IndexType findIndexType = indexType[findIdx];
+  int count = findIndexType.value_count;
+  
+  for(int i=0;i<count;i++){
+    addTypeCount(findIndexType.values[i],1,typeCount,size);
+  }
+}
+
+void InitCountType(){
+
+  for(int index=0;index<MAP_SIZE;index++){
+    int findIdx = findKeyIndex(index);
+    IndexType findIndexType = indexType[findIdx];
+    int count = findIndexType.value_count;
+    
+    for(int i=0;i<count;i++){
+      addTypeCount(findIndexType.values[i],0,typeCountVisit,&visit_size);
+      addTypeCount(findIndexType.values[i],0,typeCountPass,&pass_size);
+    }
+  }
+}
+
+// 将键值对写入到 XML 文件中
+void writeToXml(const char *filename,TypeCount* typeCount,int *size) {
+  
+  FILE *outFile = fopen(filename, "w+");
+  if (outFile == NULL) {
+    perror("Unable to open file for writing");
+    return;
+  }
+  fprintf(outFile, "<Mapping>\n");
+  for(int i=0;i<*size;i++){
+    fprintf(outFile,"<Entry>\n");
+    char * type = typeCount[i].type; ;
+    int count = typeCount[i].count;
+    fprintf(outFile, "  <Type>%s</Type>\n", type);
+    fprintf(outFile, "  <Count>%u</Count>\n", count);
+    fprintf(outFile,"</Entry>\n");
+  }
+  fprintf(outFile, "</Mapping>\n");
+
+  fclose(outFile);
+  printf("Data written to XML file.\n");
 }
 
 /* Main entry point */
@@ -1067,6 +1119,9 @@ int main(int argc, char** argv) {
       return 1;
   }
 
+  loadFromXml("Index-Type.xml");//获取Index-Type信息
+  InitCountType();//初始化类别计数  
+  InitCountType(typeCountPass,&pass_size);
   // 输出排序后的文件名，跳过 "." 和 ".."
   for (int i = 0; i < n; i++) {
   // 跳过 "."、".." 和 ".cur_seed"
@@ -1118,14 +1173,11 @@ int main(int argc, char** argv) {
     
     total_execs++;
     
-    loadFromXml("Index-Type.xml");//获取Index-Type信息
-    
+    // printMapping();
     for(int i=0;i<MAP_SIZE;i++){
       
-      CountType(i);//利用 xml得到的mapping来count
-
-      if(pass_string_cov[i]!=0){
-
+      if(pass_string_cov[i]!=0){ //string分支pass情况
+        CountType(i,"pass");// 查询对应string分支对应的类别，进行对应类别的通过pass情况进行统计
         br_string_pass[i]+=pass_string_cov[i];
         seed_string_pass[i]++;
         if(seed_first_pass[i]==0){
@@ -1134,8 +1186,9 @@ int main(int argc, char** argv) {
         if(!is_seed_pass) is_seed_pass = 1;
       }
 
-      if(basic_blk_cov[i]!=0){
-
+      if(basic_blk_cov[i]!=0){//string分支visit情况
+        CountType(i,"visit");// 查询对应string分支对应的类别，进行对应类别的通过pass情况进行统计
+        
         br_string_visit[i]+=basic_blk_cov[i];
         seed_string_visit[i]++;
 
@@ -1157,15 +1210,19 @@ int main(int argc, char** argv) {
     }
   
     write_bitmap();
-
-    
-    printMapping();
-
+    //读取type的visit/pass情况，即读取mapping；
+    //所有visit中不同类别的visit情况
+    //所有pass中不同类别的pass情况（pass的分支数 <= visit)
     munmap(in_buf, st.st_size);
     close(fd);
     close(out_fd);
 
   }
+
+  
+  writeToXml("Visit_Type_Count.xml",typeCountVisit,&visit_size);
+  writeToXml("Pass_Type_Count.xml",typeCountPass,&pass_size);
+
 
   // tcnt = write_results();
 

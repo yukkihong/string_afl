@@ -51,6 +51,7 @@
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DebugInfo.h"
+#include "llvm/Demangle/Demangle.h"
 
 using namespace llvm;
 
@@ -67,7 +68,6 @@ namespace {
       stringStruct(bool isString,int count=0): isStringRelated(isString),structCount(count) {}
 
       bool isStruct();
-      void print();
   };
 }
 
@@ -80,15 +80,7 @@ bool stringStruct::isStruct(){//检查vector是否都为空,都为空不是为st
   return false;
 }
 
-void stringStruct::print(){
-  for(auto i: idx){
-    errs()<<i<<"/";
-  }errs()<<"\n";
-  errs()<<"structCount:"<<structCount<<"\n";
-  for(auto i:structIdx){
-    errs()<<i<<"/";
-  }errs()<<"\n";
-}
+
 
 namespace {
 
@@ -117,6 +109,9 @@ namespace {
       std::unordered_set<std::string> isOprendStringRelated(Value* value,std::unordered_map<Value*, std::unordered_set<std::string>> &localStringValue);
       bool isMetadateStringRelated(Value* scope,Value* value);
       stringStruct* isTypeStringRelated(DIType* dtype);
+      bool isI8Related(Type *type);
+      void isHandleTargetFunc(std::string &funcName,Instruction * inst,  std::unordered_map<Value*, std::unordered_set<std::string>> &localStringValue);
+      Value* getValue(Value * value);
       // StringRef getPassName() const override {
       //  return "American Fuzzy Lop Instrumentation";
       // }
@@ -171,7 +166,7 @@ bool AFLCoverage::doInitialization(Module &M) {
 
 
 std::string AFLCoverage::isInterceptedFunction(std::string &calledName) {
-  static const std::unordered_set<std::string> kInterceptedFunctions = {
+  static const std::unordered_set<std::string> CFunctions = {
     "isalnum",  "isalpha",  "islower",  "isupper",  "isdigit",  "isxdigit",
     "iscntrl",  "isgraph",  "isspace", "isblank", "isprint", "ispunct",
     "tolower", "toupper", "atof", "atoi", "atol", "atoll",
@@ -180,22 +175,29 @@ std::string AFLCoverage::isInterceptedFunction(std::string &calledName) {
     "strdup", "strndup", "strlen", "strlen_s", "strcmp", "strncmp",
     "strcoll", "strchr", "strrchr", "strspn", "strcspn", "strpbrk",
     "strstr", "strtok", "strtok_s", "memchr", "memcmp", "memset",
-    "memset_explicit", "memset_s", "memcpy", "memcpy_s", "memmove", "memmove_s",
-    "memccpy", "strerror", "strerror_s", "strerrorlen_s", "at",
-    "front", "back", "data", "empty", "length", "size",
+    "memcpy", "memcpy_s", "memmove", "memmove_s","memccpy", "strerror",
+    "strerror_s", "strerrorlen_s", };
+    
+  static const std::unordered_set<std::string> CppFunctions = {
+    "at","front", "back", "data", "empty", "length", "size","assign",
     "max_size", "clear", "insert", "insert_range", "erase", "erase_if",
     "push_back", "pop_back", "append", "append_range", "replace",
     "replace_with_range", "copy", "resize", "resize_and_overwrite", "swap", "find",
     "rfind", "find_first_of", "find_first_not_of", "find_last_of", "find_last_not_of", "compare",
     "starts_with", "ends_with", "contains", "substr", "stoi", "stol",
-    "stoll", "stoul", "stoull", "stof", "stod", "stold",
+    "stoll", "stoul", "stoull", "stof", "stod", "stold","operator>","operator<",
+    "operator<=","operator>=","operator==","operator!=","operator=","operator<=>",
+    "operator+","operator+=","operator[]","to_string",
   };
 
-  for (const auto& func : kInterceptedFunctions) {
+  std::string ans = "" ;
+  for (const auto& func : CFunctions) {
     if (calledName.find(func) != std::string::npos) {
-      return func; // 返回找到的函数名
+      if(func.length() > ans.length()) ans = func;
     }
   }
+  if(ans !="") return ans;
+
   if (calledName.find("basic_string") == std::string::npos) {
     return ""; // 如果不包含，返回空字符串
   }
@@ -206,13 +208,12 @@ std::string AFLCoverage::isInterceptedFunction(std::string &calledName) {
   }
 
   // 遍历 kInterceptedFunctions，查找是否存在任何一个函数名
-  for (const auto& func : kInterceptedFunctions) {
+  for (const auto& func : CppFunctions) {
     if (calledName.find(func) != std::string::npos) {
-      return func; // 找到匹配的函数名，返回它
+      if(func.length() > ans.length()) ans = func;
     }
   }
-
-  return ""; // 返回空字符串表示未找到
+  return ans; // 找到匹配的函数名，返回它
 }
 
 void AFLCoverage::saveToXml(const std::string &filename, 
@@ -364,74 +365,120 @@ stringStruct* AFLCoverage::isTypeStringRelated(DIType* dtype){
   return new stringStruct(false);
 }
 
-// bool AFLCoverage::isTypeStringRelated(DIType* dtype,Value* value){
+// 类型是否是I8类型相关
+bool AFLCoverage::isI8Related(Type *type){
 
-//   if(processedTypes.find(dtype) != processedTypes.end()){
-//     return processedTypes[dtype];
-//   }
+  if (type->isIntegerTy(8)) 
+    return true;
+  else if (type->isPointerTy()) {
 
-//   processedTypes[dtype] = false;
+    Type *elementType = type->getPointerElementType();
+    return isI8Related(elementType);
+
+  } else if (ArrayType *arrType = dyn_cast<ArrayType>(type))   
+    return isI8Related(arrType);
   
-//   /* handle dtype because compositeType */
-//   if(isa<DICompositeType>(dtype)){
+  return false;
+}
+
+//  获取 实际需要进行类别跟踪的Value
+Value* AFLCoverage::getValue(Value * value){
+  
+  if(isa<GetElementPtrInst>(value)){
     
-//     DICompositeType* dctype = dyn_cast<DICompositeType>(dtype);
+    GetElementPtrInst* getPtrInst = dyn_cast<GetElementPtrInst>(value);
+    return getPtrInst->getPointerOperand();
 
-//     if(!dctype->getName().empty() && (0==dctype->getName().str().compare("basic_string<char, std::char_traits<char>, std::allocator<char> >"))){
-//       processedTypes[dctype] = true;
-//       return true;
-//     }
-
-//     if(dctype->getBaseType()!= nullptr){
-//       processedTypes[dctype] = isTypeStringRelated(dctype->getBaseType(),value);
-//       return processedTypes[dctype];  
-//     }
-       
+  }else if(isa<LoadInst>(value)){
     
-//     DINodeArray es = dctype->getElements();
-//     int idx = 1;
-//     bool res = false;
-//     for (auto *element : es) {
-      
-//       if(isa<DIType>(element)){  
-//         DIType *e = dyn_cast<DIType>(element);
-        
-//         if(isTypeStringRelated(e,value)) {
-//           structStringValueIndex[value] = idx;//记录结构体中的那个是string相关 , 不能只是单独一个int 索引 ，嵌套的struct。
-          
-//           if(!res){
-//             res = true;
-//             processedTypes[dtype] = true;
-//           } 
-//         }
-//       }
-//       idx++;
-//     }   
-//     return res;
+    LoadInst* loadInst = dyn_cast<LoadInst>(value);
+    return loadInst->getPointerOperand();
+  }
+}
 
-//   }else if(isa<DIDerivedType>(dtype)){
 
-//     DIDerivedType * ddtype = dyn_cast<DIDerivedType>(dtype);
-//     DIType *baseType = ddtype->getBaseType();
+// 处理 函数调用指令中设计 赋值，复制，等操作的类别跟踪，即单纯返回值类别跟踪无法跟踪的部分。
+void AFLCoverage::isHandleTargetFunc(std::string &funcName,Instruction *inst,  std::unordered_map<Value*, std::unordered_set<std::string>> &localStringValue){
 
-//     if(baseType != nullptr){
-//       processedTypes[dtype] = isTypeStringRelated(baseType,value);
-//       return processedTypes[dtype];
-//     } 
-
-//   }else if(isa<DIBasicType>(dtype)){
-//     DIBasicType *btype = dyn_cast<DIBasicType>(dtype);
+  CallBase *callBase = dyn_cast<CallBase>(inst);
+  
+  if(!funcName.compare("substr")    ||!funcName.compare("assign")
+    ||!funcName.compare("insert")   ||!funcName.compare("replace")
+    ||!funcName.compare("append")   ||!funcName.compare("copy")
+    ||!funcName.compare("to_string")||!funcName.compare("operator=")){
     
-//     if(!dtype->getName().empty()){
-//       if(!dtype->getName().str().compare("char")) {
-//         processedTypes[dtype] = dtype;
-//         return true;
-//       }
-//     }
-//   }
+    Value *target = callBase->getArgOperand(0);
+    Value *src = callBase->getArgOperand(1);
+    std::unordered_set<std::string> typeSet = localStringValue[src];
+    
+    localStringValue[target].insert(typeSet.begin(),typeSet.end());
+    localStringValue[target].insert(funcName);
+    
+  }else if(!funcName.compare("swap")){
+    
+    Value *arg1 = callBase->getArgOperand(0);
+    Value *arg2 = callBase->getArgOperand(1);
+    std::unordered_set<std::string> typeSet1 = localStringValue[arg1];
+    std::unordered_set<std::string> typeSet2 = localStringValue[arg2];
+    
+    localStringValue[arg1] = typeSet2;
+    localStringValue[arg2] = typeSet1;
+    localStringValue[arg1].insert(funcName);
+    localStringValue[arg2].insert(funcName);
+     
+  }else if(!funcName.compare("pop_back")||!funcName.compare("push_back")
+    ||!funcName.compare("clear") ||!funcName.compare("resize")
+    ||!funcName.compare("erase")){
+    
+    Value *obj = callBase->getArgOperand(0);
+    localStringValue[obj].insert(funcName);
 
-//   return false;
-// }
+  }else if( !funcName.compare("strcat_s") ||!funcName.compare("strcpy_s")
+    ||!funcName.compare("memcpy_s") ){
+    
+    Value *dest = callBase->getArgOperand(0);
+    Value *src = callBase->getArgOperand(2);
+    dest = getValue(dest);src = getValue(src);
+    std::unordered_set<std::string> typeSet = localStringValue[src];
+    
+    localStringValue[dest].insert(typeSet.begin(),typeSet.end());
+    localStringValue[dest].insert(funcName);
+
+  }else if(!funcName.compare("strcpy") 
+    ||!funcName.compare("strncpy")  ||!funcName.compare("strcat ")
+    ||!funcName.compare("strncat")  ||!funcName.compare("memcpy ")
+    ||!funcName.compare("memccpy")){
+
+    Value *arg1 = callBase->getArgOperand(0);
+    Value *arg2 = callBase->getArgOperand(1);
+    arg1 = getValue(arg1); arg2 = getValue(arg2);
+    std::unordered_set<std::string> typeSet1 = localStringValue[arg1];
+    std::unordered_set<std::string> typeSet2 = localStringValue[arg2];
+    
+    localStringValue[arg1] = typeSet2;
+    localStringValue[arg2] = typeSet1;
+    localStringValue[arg1].insert(funcName);
+    localStringValue[arg2].insert(funcName);
+    
+  }else if(!funcName.compare("memset")){
+
+    Value *src = callBase->getArgOperand(0);
+    src = getValue(src);
+    localStringValue[src].insert(funcName);
+
+  }else if(!funcName.compare("memmove")){
+
+    Value *src = callBase->getArgOperand(1);
+    src = getValue(src);
+    localStringValue[src].insert(funcName);
+
+  }else if(!funcName.compare("memmove_s")){
+    
+    Value *src = callBase->getArgOperand(2);
+    src = getValue(src);
+    localStringValue[src].insert(funcName);
+  }
+}
 
 void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::unordered_set<std::string>> &localStringValue){
   /* check the oprends of the Instruction is in the string related table ?
@@ -445,7 +492,7 @@ void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::
 
     CallInst* calle = dyn_cast<CallInst>(inst);
     Function* calledFunc = calle->getCalledFunction();
-    
+    std::unordered_set<Value*> args;
     /* if the function name is dbg.declare 
       insert the variable into stringValue 
     */
@@ -458,20 +505,21 @@ void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::
       /* Avoid repeating, insert the handled function into handledFunc */
       int argIndex = 0;
       bool isHandle = false;
+      
       std::string funcName = calledFunc->getName().str();
+      funcName = llvm::demangle(calledFunc->getName().str());
       
       // default str api not need to trace function args
       for (Argument &arg : calledFunc->args()) {
 
         Value *actualArg = calle->getArgOperand(argIndex);
-      
         auto res = isOprendStringRelated(actualArg,localStringValue);
+        
         if(!res.empty()){//应该是这里出了问题
           isHandle = true;
-          if(localStringValue.find(calle)==localStringValue.end())
-            localStringValue[calle].insert("unknown");
+          localStringValue[calle].insert(res.begin(),res.end());
         }
-       
+        args.insert(actualArg);
         argIndex++;
       }
    
@@ -482,6 +530,8 @@ void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::
         if (!result.empty()){
           localStringValue[calle].insert(result);
           localStringValue[calle].erase("unknown");
+          
+          isHandleTargetFunc(result,inst,localStringValue);
         }
       }
 
@@ -520,13 +570,25 @@ void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::
 
     auto res1 = isOprendStringRelated(op1,localStringValue);
     if(!res1.empty()){
-      localStringValue[inst] = res1;
+      localStringValue[inst].insert(res1.begin(),res1.end());
     }
 
     auto res2 = isOprendStringRelated(op2, localStringValue);
     if(!res2.empty()){
-      res1.insert(res2.begin(), res2.end()); 
-      localStringValue[inst] = res1;
+      
+      localStringValue[inst].insert(res2.begin(),res2.end());
+    }
+
+    Type *type1 = op1->getType();
+    Type *type2 = op2->getType();
+    //如果 op1 op2 都是string或者一个string一个null，则看icmp类型来判断
+    // string相关且是i8相关类型,认为是strcmp类型，其他不考虑。
+    if(isa<ICmpInst>(inst) && 
+    ( (!res1.empty() && isI8Related(type1) && isa<ConstantPointerNull>(op2)) ||
+      (!res2.empty() && isI8Related(type2) && isa<ConstantPointerNull>(op1) )||
+      (!res1.empty() && isI8Related(type1) && !res2.empty() &&  isI8Related(type2)) ) ){
+      localStringValue[inst].erase("unknown");
+      localStringValue[inst].insert("strcmp");// 加入一个strcmp类型
     }
         
   }else if(isa<BranchInst>(inst)){
@@ -615,31 +677,35 @@ void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::
     InvokeInst *invokeInst = dyn_cast<InvokeInst>(inst);
     Function* calledFunc = invokeInst->getCalledFunction();  
     bool isHandle = false;
+    std::unordered_set<Value*> args;
 
     for (unsigned i = 0; i < invokeInst->getNumArgOperands(); i++) {
       
       Value *arg = invokeInst->getArgOperand(i);
+      auto res = isOprendStringRelated(arg, localStringValue);
+      args.insert(arg);
 
-      auto res = isOprendStringRelated(arg,localStringValue);
       if(!res.empty()){
         isHandle = true;
-        localStringValue[invokeInst] = res;
+        localStringValue[invokeInst].insert(res.begin(),res.end());
       }
     }
 
     if(calledFunc){
 
       if(isHandle&&!calledFunc->getName().empty()){  
-
         std::string funcName = calledFunc->getName().str();
-
+        funcName = llvm::demangle(calledFunc->getName().str());  
         //识别对应的str api 然后插入对应类别，删除unknown
-        std::string result = isInterceptedFunction(funcName);
 
+        std::string result = isInterceptedFunction(funcName);
+      
         if (!result.empty()){
           localStringValue[invokeInst].insert(result);
           localStringValue[invokeInst].erase("unknown");
-        }
+
+          isHandleTargetFunc(result,inst,localStringValue);
+        } 
 
         if(handledFunc.find(funcName)==handledFunc.end()){
 
@@ -709,9 +775,6 @@ void AFLCoverage::handleFunc(Function *func){
 
   for(BasicBlock &blk: *func){
     for(Instruction &inst: blk){
-      if(func->getName()=="process_file"){
-        inst.print(errs());errs()<<"\n";
-      }   
       handleInst(&inst,localStringValue);
     }
   }
@@ -863,10 +926,10 @@ bool AFLCoverage::runOnModule(Module &M) {
                     passSet.insert(std::pair<u32,u32>(next_loc,cur_loc));
                     instBrNum++;
 
+                  // 索引为cur_loc>>1^next_loc,建立对应的插桩string分支索引及其对应的类别
+                    mapping[(cur_loc>>1)^next_loc]=stringValue[brInst];
                   }
 
-                  // 索引为cur_loc^next_loc>>1,建立对应的插桩string分支索引及其对应的类别
-                  mapping[cur_loc^next_loc]=stringValue[brInst];
                 }
               }
             }
