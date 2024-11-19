@@ -1178,8 +1178,8 @@ int main(int argc, char** argv) {
       
       if(pass_string_cov[i]!=0){ //string分支pass情况
         CountType(i,"pass");// 查询对应string分支对应的类别，进行对应类别的通过pass情况进行统计
-        br_string_pass[i]+=pass_string_cov[i];
-        seed_string_pass[i]++;
+        br_string_pass[i]+=pass_string_cov[i];//分支总的通过次数
+        seed_string_pass[i]++; // 本次种子执行通过了，则本分支的种子通过数+1
         if(seed_first_pass[i]==0){
           seed_first_pass[i]=total_execs;
         }
@@ -1189,8 +1189,8 @@ int main(int argc, char** argv) {
       if(basic_blk_cov[i]!=0){//string分支visit情况
         CountType(i,"visit");// 查询对应string分支对应的类别，进行对应类别的通过pass情况进行统计
         
-        br_string_visit[i]+=basic_blk_cov[i];
-        seed_string_visit[i]++;
+        br_string_visit[i]+=basic_blk_cov[i];//分支总的访问次数
+        seed_string_visit[i]++;// 本次种子执行访问了，则本分支的种子访问数+1
 
         if(seed_first_visit[i]==0){
           seed_first_visit[i]=total_execs;
@@ -1199,13 +1199,13 @@ int main(int argc, char** argv) {
       }
     }
 
-    if(is_seed_pass) {
-      seed_num_pass++;
+    if(is_seed_pass) { 
+      seed_num_pass++; //能够通过string分支（任一一个分支）的种子数
       is_seed_pass=0;
     }
 
     if(is_seed_visit){
-      seed_num_visit++;
+      seed_num_visit++;//能够访问string分支（任一一个分支）的种子数
       is_seed_pass=0;
     }
   

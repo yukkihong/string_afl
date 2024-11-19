@@ -421,8 +421,10 @@ void AFLCoverage::isHandleTargetFunc(std::string &funcName,Instruction *inst,  s
     Value *src = callBase->getArgOperand(1);
     std::unordered_set<std::string> typeSet = localStringValue[src];
     
-    localStringValue[target].insert(typeSet.begin(),typeSet.end());
-    localStringValue[target].insert(funcName);
+    if(target != nullptr){
+      localStringValue[target].insert(typeSet.begin(),typeSet.end());
+      localStringValue[target].insert(funcName);
+    }
     
   }else if(!funcName.compare("swap")){
     
@@ -431,17 +433,19 @@ void AFLCoverage::isHandleTargetFunc(std::string &funcName,Instruction *inst,  s
     std::unordered_set<std::string> typeSet1 = localStringValue[arg1];
     std::unordered_set<std::string> typeSet2 = localStringValue[arg2];
     
-    localStringValue[arg1] = typeSet2;
-    localStringValue[arg2] = typeSet1;
-    localStringValue[arg1].insert(funcName);
-    localStringValue[arg2].insert(funcName);
+    if(arg1 != nullptr && arg2 !=nullptr){
+      localStringValue[arg1] = typeSet2;
+      localStringValue[arg2] = typeSet1;
+      localStringValue[arg1].insert(funcName);
+      localStringValue[arg2].insert(funcName);
+    }
      
   }else if(!funcName.compare("pop_back")||!funcName.compare("push_back")
     ||!funcName.compare("clear") ||!funcName.compare("resize")
     ||!funcName.compare("erase")){
     
     Value *obj = callBase->getArgOperand(0);
-    localStringValue[obj].insert(funcName);
+    if(obj != nullptr)  localStringValue[obj].insert(funcName);
 
   }else if( !funcName.compare("strcat_s") ||!funcName.compare("strcpy_s")
     ||!funcName.compare("memcpy_s") ){
@@ -451,8 +455,10 @@ void AFLCoverage::isHandleTargetFunc(std::string &funcName,Instruction *inst,  s
     dest = getValue(dest);src = getValue(src);
     std::unordered_set<std::string> typeSet = localStringValue[src];
     
-    localStringValue[dest].insert(typeSet.begin(),typeSet.end());
-    localStringValue[dest].insert(funcName);
+    if( dest != nullptr){
+      localStringValue[dest].insert(typeSet.begin(),typeSet.end());
+      localStringValue[dest].insert(funcName);
+    }
 
   }else if(!funcName.compare("strcpy") 
     ||!funcName.compare("strncpy")  ||!funcName.compare("strcat ")
@@ -465,28 +471,33 @@ void AFLCoverage::isHandleTargetFunc(std::string &funcName,Instruction *inst,  s
     std::unordered_set<std::string> typeSet1 = localStringValue[arg1];
     std::unordered_set<std::string> typeSet2 = localStringValue[arg2];
     
-    localStringValue[arg1] = typeSet2;
-    localStringValue[arg2] = typeSet1;
-    localStringValue[arg1].insert(funcName);
-    localStringValue[arg2].insert(funcName);
+    if(arg1 != nullptr && arg2 != nullptr){
+      localStringValue[arg1] = typeSet2;
+      localStringValue[arg2] = typeSet1;
+      localStringValue[arg1].insert(funcName);
+      localStringValue[arg2].insert(funcName);
+    }
     
   }else if(!funcName.compare("memset")){
 
     Value *src = callBase->getArgOperand(0);
     src = getValue(src);
-    localStringValue[src].insert(funcName);
+    if(src != nullptr)
+      localStringValue[src].insert(funcName);
 
   }else if(!funcName.compare("memmove")){
 
     Value *src = callBase->getArgOperand(1);
     src = getValue(src);
-    localStringValue[src].insert(funcName);
+    if(src != nullptr)
+      localStringValue[src].insert(funcName);
 
   }else if(!funcName.compare("memmove_s")){
     
     Value *src = callBase->getArgOperand(2);
     src = getValue(src);
-    localStringValue[src].insert(funcName);
+    if(src != nullptr)
+      localStringValue[src].insert(funcName);
   }
 }
 
