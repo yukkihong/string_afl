@@ -218,6 +218,7 @@ std::string AFLCoverage::isInterceptedFunction(std::string &calledName) {
 
 void AFLCoverage::saveToXml(const std::string &filename, 
   const std::unordered_map<unsigned int, std::unordered_set<std::string>> &mapping) {
+  std::unordered_map<std::string,unsigned int> typeMap; 
 
   std::ofstream outFile(filename);
   if (outFile.is_open()) {
@@ -226,12 +227,21 @@ void AFLCoverage::saveToXml(const std::string &filename,
     for (const auto &pair : mapping) {
       outFile << "  <entry>\n";
       outFile << "    <Index>" << pair.first << "</Index>\n";
-      for (const auto &value : pair.second) {
-        outFile << "    <Type>" << value << "</Type>\n";
+      
+      for (std::string type : pair.second) {
+        outFile << "    <Type>" << type << "</Type>\n";
+        typeMap[type]++;
       }
       outFile << "  </entry>\n";
     }
     outFile << "</mapping>\n";
+    
+    outFile << "<The BrType>\n";
+    
+    for(auto typeNum : typeMap){
+      outFile << "  Type: "<<typeNum.first<<",  Num: "<<typeNum.second<<"\n";
+    }
+    outFile << "</The BrType>\n";
     
     outFile.close();
     std::cout << "Data saved to XML file." << std::endl;
