@@ -867,22 +867,10 @@ bool AFLCoverage::runOnModule(Module &M) {
   int brNum = 0 ;
   Function* mainFunc =  M.getFunction("main");
 
-
-  for (auto CU : M.debug_compile_units()) {
-
-    StringRef fileName = CU->getFilename();
-
-    if(soureceFileName.empty()) {
-      
-      soureceFileName = fileName;
-      break;
-
-    }else if(fileName == soureceFileName) break;
-    else return false;
-
+  DISubprogram *subprogram = mainFunc->getSubprogram();
+  if(subprogram){
+    soureceFileName = subprogram->getFilename();
   }
-
- 
   /* handleFunc ：handle BasicBlocks of the Function A Set keep handledFunction avoid repeating
     finish, get a table about the string related values.
   */  
@@ -933,7 +921,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
                   DILocation *loc = dyn_cast<DILocation>(md);
 
-                  // if(soureceFileName == loc->getFilename()){
+                  if(soureceFileName == loc->getFilename()){
 
                     errs() << loc->getFilename() << "    Line: " << loc->getLine() <<"\n";
 
@@ -949,7 +937,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
                   // 索引为cur_loc>>1^next_loc,建立对应的插桩string分支索引及其对应的类别
                     mapping[(cur_loc>>1)^next_loc]=stringValue[brInst];
-                  // }
+                  }
 
                 }
               }
