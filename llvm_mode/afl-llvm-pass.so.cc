@@ -933,7 +933,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
                   DILocation *loc = dyn_cast<DILocation>(md);
 
-                  if(soureceFileName == loc->getFilename()){
+                  // if(soureceFileName == loc->getFilename()){
 
                     errs() << loc->getFilename() << "    Line: " << loc->getLine() <<"\n";
 
@@ -949,7 +949,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
                   // 索引为cur_loc>>1^next_loc,建立对应的插桩string分支索引及其对应的类别
                     mapping[(cur_loc>>1)^next_loc]=stringValue[brInst];
-                  }
+                  // }
 
                 }
               }
