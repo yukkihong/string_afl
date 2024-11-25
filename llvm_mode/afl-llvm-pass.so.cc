@@ -95,7 +95,7 @@ namespace {
       std::unordered_map<Value*, std::unordered_set<std::string>> stringValue;
       std::unordered_map<Value*, stringStruct*> valueStringStruct;
       std::unordered_map<DIType*,stringStruct*> processedTypes;
-      StringRef soureceFileName;
+      StringRef soureceFileName = "";
      
       AFLCoverage() : ModulePass(ID) { }
 
@@ -865,12 +865,16 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   int instBrNum = 0;
   int brNum = 0 ;
+  char* instAll = getenv("InstrumentAll");
+  bool instAllFlag = false;
   Function* mainFunc =  M.getFunction("main");
 
-  DISubprogram *subprogram = mainFunc->getSubprogram();
-  if(subprogram){
-    soureceFileName = subprogram->getFilename();
+  if(instAll) instAllFlag = true;
+  else{
+    DISubprogram *subprogram = mainFunc->getSubprogram();
+    if(subprogram)  soureceFileName = subprogram->getFilename();
   }
+  
   /* handleFunc ：handle BasicBlocks of the Function A Set keep handledFunction avoid repeating
     finish, get a table about the string related values.
   */  
@@ -921,7 +925,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
                   DILocation *loc = dyn_cast<DILocation>(md);
 
-                  if(soureceFileName == loc->getFilename()){
+                  if(instAllFlag || soureceFileName == loc->getFilename()){
 
                     errs() << loc->getFilename() << "    Line: " << loc->getLine() <<"\n";
 
