@@ -925,6 +925,9 @@ bool AFLCoverage::runOnModule(Module &M) {
 
                   DILocation *loc = dyn_cast<DILocation>(md);
 
+                  errs()<<"sourceFileName:"<<soureceFileName<<"\n";
+                  errs()<<"getFilename:"<<loc->getFilename()<<"\n";
+                  
                   if(instAllFlag || soureceFileName == loc->getFilename()){
 
                     errs() << loc->getFilename() << "    Line: " << loc->getLine() <<"\n";
