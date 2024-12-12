@@ -1005,6 +1005,7 @@ bool AFLCoverage::runOnModule(Module &M) {
     }
   }
 
+  errs()<<"Instrumented "<< instBrNum <<" locations, the number of all conditional branch "<<brNum<<"\n";
   saveToXml("Index-Type.xml",mapping);
 
   // 关闭文件
