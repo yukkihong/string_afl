@@ -759,6 +759,24 @@ void AFLCoverage::handleInst(Instruction *inst, std::unordered_map<Value*, std::
     if(!res.empty()){
       localStringValue[inst] = res;
     }
+  }else if(isa<BitCastInst>(inst)){
+    BitCastInst *bCastI = dyn_cast<BitCastInst>(inst);
+    Value *value = bCastI->getOperand(0);
+    
+    auto res = isOprendStringRelated(value,localStringValue);
+    if(!res.empty()){
+      localStringValue[inst] = res;
+    }
+  }else{
+
+    for(Use &u: inst->operands()){
+      Value *operand = u.get();
+
+      auto res = isOprendStringRelated(operand,localStringValue);
+      if(!res.empty()){
+        localStringValue[inst].insert(res.begin(),res.end());
+      }
+    }
   }
 }
 
