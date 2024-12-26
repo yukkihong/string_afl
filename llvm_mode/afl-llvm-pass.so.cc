@@ -881,7 +881,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
 
   /* Instrument all the things! */
-  errs() << "Module Name: " << M.getName() << "\n";
+  errs() << ">>>>>>>>>>> Module Name: " << M.getName() << "\n";
   int instBrNum = 0;
   int brNum = 0 ;
   Function* mainFunc =  M.getFunction("main");
