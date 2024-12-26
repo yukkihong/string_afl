@@ -950,7 +950,7 @@ bool AFLCoverage::runOnModule(Module &M) {
                   
                   // if(instAllFlag || soureceFileName == loc->getFilename()){
 
-                    // errs() << loc->getFilename() << "    Line: " << loc->getLine() <<"\n";
+                    errs() << loc->getFilename() << "    Line: " << loc->getLine() <<"\n";
 
                     /* Visit */
                     BasicBlock *trueBB = brInst->getSuccessor(0);
