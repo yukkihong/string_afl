@@ -95,7 +95,8 @@ namespace {
       std::unordered_map<Value*, std::unordered_set<std::string>> stringValue;
       std::unordered_map<Value*, stringStruct*> valueStringStruct;
       std::unordered_map<DIType*,stringStruct*> processedTypes;
-      StringRef soureceFileName = "";
+       // 用于存储文件路径
+      std::unordered_set<std::string> SourceFiles;
      
       AFLCoverage() : ModulePass(ID) { }
 
@@ -880,18 +881,12 @@ bool AFLCoverage::runOnModule(Module &M) {
 
 
   /* Instrument all the things! */
-
+  errs() << "Module Name: " << M.getName() << "\n";
   int instBrNum = 0;
   int brNum = 0 ;
-  char* instAll = getenv("InstrumentAll");
-  bool instAllFlag = false;
   Function* mainFunc =  M.getFunction("main");
 
-  if(instAll) instAllFlag = true;
-  else{
-    DISubprogram *subprogram = mainFunc->getSubprogram();
-    if(subprogram)  soureceFileName = subprogram->getFilename();
-  }
+
   
   /* handleFunc ：handle BasicBlocks of the Function A Set keep handledFunction avoid repeating
     finish, get a table about the string related values.
@@ -908,6 +903,15 @@ bool AFLCoverage::runOnModule(Module &M) {
   std::unordered_map<unsigned int, std::unordered_set<std::string>> mapping;
 
   for (auto &F : M){
+    
+    // if (DISubprogram *SP = F.getSubprogram()) {
+    //   // 获取文件名
+    //   StringRef FileName = SP->getFilename();
+    //   if (FileName.startswith("./")) FileName = FileName.drop_front(2); 
+    //   StringRef Directory = SP->getDirectory();
+
+    //   errs() << "File: " << Directory << "/" << FileName << "\n";
+    // } 
 
     for (auto &BB : F) {
       
@@ -944,9 +948,9 @@ bool AFLCoverage::runOnModule(Module &M) {
                   DILocation *loc = dyn_cast<DILocation>(md);
 
                   
-                  if(instAllFlag || soureceFileName == loc->getFilename()){
+                  // if(instAllFlag || soureceFileName == loc->getFilename()){
 
-                    errs() << loc->getFilename() << "    Line: " << loc->getLine() <<"\n";
+                    // errs() << loc->getFilename() << "    Line: " << loc->getLine() <<"\n";
 
                     /* Visit */
                     BasicBlock *trueBB = brInst->getSuccessor(0);
@@ -960,7 +964,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
                   // 索引为cur_loc>>1^next_loc,建立对应的插桩string分支索引及其对应的类别
                     mapping[(cur_loc>>1)^next_loc]=stringValue[brInst];
-                  }
+                  // }
 
                 }
               }
