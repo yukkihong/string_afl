@@ -977,9 +977,9 @@ bool AFLCoverage::runOnModule(Module &M) {
   // }
   
   std::unordered_map<unsigned int, std::unordered_set<std::string>> mapping;
-
+  errs() << ">>>>>>>>>>> Module Name: " << M.getName() << "\n";
   for (auto &F : M){
-    errs() << ">>>>>>>>>>> Module Name: " << M.getName() << "\n";
+    
     // if (DISubprogram *SP = F.getSubprogram()) {
     //   // 获取文件名
     //   StringRef FileName = SP->getFilename();
