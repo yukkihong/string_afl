@@ -95,8 +95,7 @@ namespace {
       std::unordered_map<Value*, std::unordered_set<std::string>> stringValue;
       std::unordered_map<Value*, stringStruct*> valueStringStruct;
       std::unordered_map<DIType*,stringStruct*> processedTypes;
-       // 用于存储文件路径
-      std::unordered_set<std::string> SourceFiles;
+      StringRef soureceFileName = "";
      
       AFLCoverage() : ModulePass(ID) { }
 
@@ -418,87 +417,158 @@ void AFLCoverage::isHandleTargetFunc(std::string &funcName,Instruction *inst,  s
     ||!funcName.compare("append")   ||!funcName.compare("copy")
     ||!funcName.compare("to_string")||!funcName.compare("operator=")){
     
-    Value *target = callBase->getArgOperand(0);
-    Value *src = callBase->getArgOperand(1);
+    unsigned numArgs = callBase->getNumArgOperands(); // 获取参数的数量
 
-    if(target != nullptr && src != nullptr){
-      std::unordered_set<std::string> typeSet = localStringValue[src];
-      localStringValue[target].insert(typeSet.begin(),typeSet.end());
-      localStringValue[target].insert(funcName);
+    if (numArgs > 1) {
+      Value *target = callBase->getArgOperand(0);
+      Value *src = callBase->getArgOperand(1);
+
+      if(target != nullptr && src != nullptr){
+        std::unordered_set<std::string> typeSet = localStringValue[src];
+        localStringValue[target].insert(typeSet.begin(),typeSet.end());
+        localStringValue[target].insert(funcName);
+      }
+    }else if(numArgs > 0){
+        Value *target = callBase->getArgOperand(0);
+        std::unordered_set<std::string> typeSet = localStringValue[target];
+        localStringValue[inst].insert(typeSet.begin(),typeSet.end());
+        localStringValue[inst].insert(funcName);
     }
-    
+  
   }else if(!funcName.compare("swap")){
     
-    Value *arg1 = callBase->getArgOperand(0);
-    Value *arg2 = callBase->getArgOperand(1);
+    unsigned numArgs = callBase->getNumArgOperands(); // 获取参数的数量
 
-    if(arg1 != nullptr && arg2 !=nullptr){
-      std::unordered_set<std::string> typeSet1 = localStringValue[arg1];
-      std::unordered_set<std::string> typeSet2 = localStringValue[arg2];
-      localStringValue[arg1] = typeSet2;
-      localStringValue[arg2] = typeSet1;
-      localStringValue[arg1].insert(funcName);
-      localStringValue[arg2].insert(funcName);
+    if (numArgs > 1) {
+      Value *arg1 = callBase->getArgOperand(0);
+      Value *arg2 = callBase->getArgOperand(1);
+
+      if(arg1 != nullptr && arg2 !=nullptr){
+        std::unordered_set<std::string> typeSet1 = localStringValue[arg1];
+        std::unordered_set<std::string> typeSet2 = localStringValue[arg2];
+        localStringValue[arg1] = typeSet2;
+        localStringValue[arg2] = typeSet1;
+        localStringValue[arg1].insert(funcName);
+        localStringValue[arg2].insert(funcName);
+      }
+    }else if(numArgs > 0){
+      Value *target = callBase->getArgOperand(0);
+      std::unordered_set<std::string> typeSet = localStringValue[target];
+      localStringValue[inst].insert(typeSet.begin(),typeSet.end());
+      localStringValue[inst].insert(funcName);
     }
-     
+
   }else if(!funcName.compare("pop_back")||!funcName.compare("push_back")
     ||!funcName.compare("clear") ||!funcName.compare("resize")
     ||!funcName.compare("erase")){
     
-    Value *obj = callBase->getArgOperand(0);
-    if(obj != nullptr)  localStringValue[obj].insert(funcName);
+    unsigned numArgs = callBase->getNumArgOperands(); // 获取参数的数量
+
+    if (numArgs > 0) {
+      Value *obj = callBase->getArgOperand(0);
+      if(obj != nullptr)  localStringValue[obj].insert(funcName);
+    }else{
+      Value *target = callBase->getArgOperand(0);
+      std::unordered_set<std::string> typeSet = localStringValue[target];
+      localStringValue[inst].insert(typeSet.begin(),typeSet.end());
+      localStringValue[inst].insert(funcName);
+    }
 
   }else if( !funcName.compare("strcat_s") ||!funcName.compare("strcpy_s")
     ||!funcName.compare("memcpy_s") ){
     
-    Value *dest = callBase->getArgOperand(0);
-    Value *src = callBase->getArgOperand(2);
-    dest = getValue(dest);src = getValue(src);
+    unsigned numArgs = callBase->getNumArgOperands(); // 获取参数的数量
+
+    if (numArgs > 2) {
+      Value *dest = callBase->getArgOperand(0);
+      Value *src = callBase->getArgOperand(2);
+      dest = getValue(dest);src = getValue(src);
     
-    if( dest != nullptr && src != nullptr){
-      std::unordered_set<std::string> typeSet = localStringValue[src];
-      localStringValue[dest].insert(typeSet.begin(),typeSet.end());
-      localStringValue[dest].insert(funcName);
+      if( dest != nullptr && src != nullptr){
+        std::unordered_set<std::string> typeSet = localStringValue[src];
+        localStringValue[dest].insert(typeSet.begin(),typeSet.end());
+        localStringValue[dest].insert(funcName);
+      }
+    }else if(numArgs > 0){
+      Value *target = callBase->getArgOperand(0);
+      std::unordered_set<std::string> typeSet = localStringValue[target];
+      localStringValue[inst].insert(typeSet.begin(),typeSet.end());
+      localStringValue[inst].insert(funcName);
     }
+   
 
   }else if(!funcName.compare("strcpy") 
     ||!funcName.compare("strncpy")  ||!funcName.compare("strcat ")
     ||!funcName.compare("strncat")  ||!funcName.compare("memcpy ")
     ||!funcName.compare("memccpy")){
+   
+    unsigned numArgs = callBase->getNumArgOperands(); // 获取参数的数量
 
-    Value *arg1 = callBase->getArgOperand(0);
-    Value *arg2 = callBase->getArgOperand(1);
-    arg1 = getValue(arg1); arg2 = getValue(arg2);
-    
-    if(arg1 != nullptr && arg2 != nullptr){
-      std::unordered_set<std::string> typeSet1 = localStringValue[arg1];
-      std::unordered_set<std::string> typeSet2 = localStringValue[arg2];
-      localStringValue[arg1] = typeSet2;
-      localStringValue[arg2] = typeSet1;
-      localStringValue[arg1].insert(funcName);
-      localStringValue[arg2].insert(funcName);
+    if (numArgs > 1) {
+      Value *arg1 = callBase->getArgOperand(0);
+      Value *arg2 = callBase->getArgOperand(1);
+      arg1 = getValue(arg1); arg2 = getValue(arg2);
+      
+      if(arg1 != nullptr && arg2 != nullptr){
+        std::unordered_set<std::string> typeSet1 = localStringValue[arg1];
+        std::unordered_set<std::string> typeSet2 = localStringValue[arg2];
+        localStringValue[arg1] = typeSet2;
+        localStringValue[arg2] = typeSet1;
+        localStringValue[arg1].insert(funcName);
+        localStringValue[arg2].insert(funcName);
+      }
+    }else if(numArgs > 0){
+      Value *target = callBase->getArgOperand(0);
+      std::unordered_set<std::string> typeSet = localStringValue[target];
+      localStringValue[inst].insert(typeSet.begin(),typeSet.end());
+      localStringValue[inst].insert(funcName);
     }
+   
     
   }else if(!funcName.compare("memset")){
 
-    Value *src = callBase->getArgOperand(0);
-    src = getValue(src);
-    if(src != nullptr)
-      localStringValue[src].insert(funcName);
+    
+    unsigned numArgs = callBase->getNumArgOperands(); // 获取参数的数量
 
+    if (numArgs > 0) {
+      Value *src = callBase->getArgOperand(0);
+      src = getValue(src);
+      if(src != nullptr)
+        localStringValue[src].insert(funcName);
+    }
   }else if(!funcName.compare("memmove")){
 
-    Value *src = callBase->getArgOperand(1);
-    src = getValue(src);
-    if(src != nullptr)
+    unsigned numArgs = callBase->getNumArgOperands(); // 获取参数的数量
+
+    if (numArgs > 1) {
+      Value *src = callBase->getArgOperand(1);
+      src = getValue(src);
+      if(src != nullptr)
       localStringValue[src].insert(funcName);
+    }else if(numArgs > 0){
+      Value *target = callBase->getArgOperand(0);
+      std::unordered_set<std::string> typeSet = localStringValue[target];
+      localStringValue[inst].insert(typeSet.begin(),typeSet.end());
+      localStringValue[inst].insert(funcName);
+    }
+
 
   }else if(!funcName.compare("memmove_s")){
     
-    Value *src = callBase->getArgOperand(2);
-    src = getValue(src);
-    if(src != nullptr)
+    unsigned numArgs = callBase->getNumArgOperands(); // 获取参数的数量
+
+    if (numArgs > 2) {
+      Value *src = callBase->getArgOperand(2);
+      src = getValue(src);
+      if(src != nullptr)
       localStringValue[src].insert(funcName);
+    }else if(numArgs > 0){
+      Value *target = callBase->getArgOperand(0);
+      std::unordered_set<std::string> typeSet = localStringValue[target];
+      localStringValue[inst].insert(typeSet.begin(),typeSet.end());
+      localStringValue[inst].insert(funcName);
+    }
+   
   }
 }
 
@@ -881,12 +951,18 @@ bool AFLCoverage::runOnModule(Module &M) {
 
 
   /* Instrument all the things! */
-  errs() << ">>>>>>>>>>> Module Name: " << M.getName() << "\n";
+
   int instBrNum = 0;
   int brNum = 0 ;
+  char* instAll = getenv("InstrumentAll");
+  bool instAllFlag = false;
   Function* mainFunc =  M.getFunction("main");
 
-
+  if(instAll) instAllFlag = true;
+  else{
+    DISubprogram *subprogram = mainFunc->getSubprogram();
+    if(subprogram)  soureceFileName = subprogram->getFilename();
+  }
   
   /* handleFunc ：handle BasicBlocks of the Function A Set keep handledFunction avoid repeating
     finish, get a table about the string related values.
@@ -904,14 +980,13 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   for (auto &F : M){
     
-    // if (DISubprogram *SP = F.getSubprogram()) {
-    //   // 获取文件名
-    //   StringRef FileName = SP->getFilename();
-    //   if (FileName.startswith("./")) FileName = FileName.drop_front(2); 
-    //   StringRef Directory = SP->getDirectory();
+    if (DISubprogram *SP = F.getSubprogram()) {
+      // 获取文件名
+      StringRef FileName = SP->getFilename();
+      StringRef Directory = SP->getDirectory();
 
-    //   errs() << "File: " << Directory << "/" << FileName << "\n";
-    // } 
+      errs() << "File: " << Directory << "/" << FileName << "\n";
+    } 
 
     for (auto &BB : F) {
       
@@ -948,7 +1023,7 @@ bool AFLCoverage::runOnModule(Module &M) {
                   DILocation *loc = dyn_cast<DILocation>(md);
 
                   
-                  // if(instAllFlag || soureceFileName == loc->getFilename()){
+                  if(instAllFlag || soureceFileName == loc->getFilename()){
 
                     errs() << loc->getFilename() << "    Line: " << loc->getLine() <<"\n";
 
@@ -964,7 +1039,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
                   // 索引为cur_loc>>1^next_loc,建立对应的插桩string分支索引及其对应的类别
                     mapping[(cur_loc>>1)^next_loc]=stringValue[brInst];
-                  // }
+                  }
 
                 }
               }
