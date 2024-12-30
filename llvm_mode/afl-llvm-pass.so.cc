@@ -95,7 +95,7 @@ namespace {
       std::unordered_map<Value*, std::unordered_set<std::string>> stringValue;
       std::unordered_map<Value*, stringStruct*> valueStringStruct;
       std::unordered_map<DIType*,stringStruct*> processedTypes;
-      StringRef soureceFileName = "";
+      // StringRef soureceFileName = "";
      
       AFLCoverage() : ModulePass(ID) { }
 
@@ -508,7 +508,7 @@ void AFLCoverage::isHandleTargetFunc(std::string &funcName,Instruction *inst,  s
       Value *arg1 = callBase->getArgOperand(0);
       Value *arg2 = callBase->getArgOperand(1);
       arg1 = getValue(arg1); arg2 = getValue(arg2);
-      
+    
       if(arg1 != nullptr && arg2 != nullptr){
         std::unordered_set<std::string> typeSet1 = localStringValue[arg1];
         std::unordered_set<std::string> typeSet2 = localStringValue[arg2];
@@ -954,15 +954,15 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   int instBrNum = 0;
   int brNum = 0 ;
-  char* instAll = getenv("InstrumentAll");
-  bool instAllFlag = false;
+  // char* instAll = getenv("InstrumentAll");
+  // bool instAllFlag = false;
   Function* mainFunc =  M.getFunction("main");
 
-  if(instAll) instAllFlag = true;
-  else{
-    DISubprogram *subprogram = mainFunc->getSubprogram();
-    if(subprogram)  soureceFileName = subprogram->getFilename();
-  }
+  // if(instAll) instAllFlag = true;
+  // else{
+  //   DISubprogram *subprogram = mainFunc->getSubprogram();
+  //   if(subprogram)  soureceFileName = subprogram->getFilename();
+  // }
   
   /* handleFunc ：handle BasicBlocks of the Function A Set keep handledFunction avoid repeating
     finish, get a table about the string related values.
@@ -979,14 +979,14 @@ bool AFLCoverage::runOnModule(Module &M) {
   std::unordered_map<unsigned int, std::unordered_set<std::string>> mapping;
 
   for (auto &F : M){
-    
-    if (DISubprogram *SP = F.getSubprogram()) {
-      // 获取文件名
-      StringRef FileName = SP->getFilename();
-      StringRef Directory = SP->getDirectory();
+    errs() << ">>>>>>>>>>> Module Name: " << M.getName() << "\n";
+    // if (DISubprogram *SP = F.getSubprogram()) {
+    //   // 获取文件名
+    //   StringRef FileName = SP->getFilename();
+    //   StringRef Directory = SP->getDirectory();
 
-      errs() << "File: " << Directory << "/" << FileName << "\n";
-    } 
+    //   errs() << "File: " << Directory << "/" << FileName << "\n";
+    // } 
 
     for (auto &BB : F) {
       
@@ -1023,7 +1023,7 @@ bool AFLCoverage::runOnModule(Module &M) {
                   DILocation *loc = dyn_cast<DILocation>(md);
 
                   
-                  if(instAllFlag || soureceFileName == loc->getFilename()){
+                  // if(instAllFlag || soureceFileName == loc->getFilename()){
 
                     errs() << loc->getFilename() << "    Line: " << loc->getLine() <<"\n";
 
@@ -1041,7 +1041,7 @@ bool AFLCoverage::runOnModule(Module &M) {
                     mapping[(cur_loc>>1)^next_loc]=stringValue[brInst];
                   }
 
-                }
+                // }
               }
             }
             brNum++;
